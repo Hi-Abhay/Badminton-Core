@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "206694148865",
+    "project_id": "lifeshield-6f587",
+    "storage_bucket": "lifeshield-6f587.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:206694148865:android:e2f1b26ac431d6b8724900",
+        "android_client_info": {
+          "package_name": "com.badmintoncore"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "206694148865-e43igbm7kvouauvti06u56l09ii8rqj5.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.badmintoncore",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        },
+        {
+          "client_id": "206694148865-1f9npnt8a1als21kb6td5vlfrfud1ftj.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBvye94zuRkUQj19nG73EGpIZmAWsKTjpE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "206694148865-1f9npnt8a1als21kb6td5vlfrfud1ftj.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "206694148865-1uk8cm8463ptfh53p7fiuiq59lsnl17o.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.scoredeck"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

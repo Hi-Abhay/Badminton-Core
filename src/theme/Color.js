@@ -1,0 +1,28 @@
+export const light = {
+  bgBase: '#F4F4F5',
+  bgSurface: '#FFFFFF',
+  textPrimary: '#000000',
+  textSecondary: '#3F3F46',
+  textTertiary: '#71717A',
+  borderColor: '#E4E4E7',
+  accentBg: '#000000',
+  accentText: '#FFFFFF',
+  danger: '#EF4444',
+  success: '#10B981',
+  bottomNavBg: 'rgba(255, 255, 255, 0.94)',
+  overlayBg: 'rgba(0, 0, 0, 0.4)',
+};
+export const dark = {
+  bgBase: '#000000',
+  bgSurface: '#18181B',
+  textPrimary: '#FFFFFF',
+  textSecondary: '#A1A1AA',
+  textTertiary: '#52525B',
+  borderColor: '#27272A',
+  accentBg: '#FFFFFF',
+  accentText: '#000000',
+  danger: '#F87171',
+  success: '#34D399',
+  bottomNavBg: 'rgba(24, 24, 27, 0.9)',
+  overlayBg: 'rgba(0, 0, 0, 0.7)',
+};
