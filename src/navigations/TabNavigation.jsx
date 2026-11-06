@@ -1,170 +1,290 @@
 import React, { useEffect, useRef } from 'react';
-import { StyleSheet, Platform, useColorScheme, Animated, View } from 'react-native';
+import {
+  StyleSheet,
+  useColorScheme,
+  Animated,
+  View,
+  TouchableOpacity,
+  Text,
+} from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import LinearGradient from 'react-native-linear-gradient';
 
 import Home from '../screens/TabScreens/Home';
 import Players from '../screens/TabScreens/Players';
 import Teams from '../screens/TabScreens/Teams';
 import Matches from '../screens/TabScreens/Matches';
-import { light, dark } from '../theme/Color';
 
 const Tab = createBottomTabNavigator();
 
-// --- 1. Custom Animated Icon Component ---
-const AnimatedTabIcon = ({ focused, iconName, theme }) => {
-  const animValue = useRef(new Animated.Value(focused ? 1 : 0)).current;
+// --- Bottom Edge Fade Palettes ---
+const BOTTOM_EDGE_GRADIENTS = {
+  dark: [
+    'rgba(0, 0, 0, 0.00)',
+    'rgba(10, 10, 12, 0.20)',
+    'rgba(12, 12, 14, 0.45)',
+    'rgba(8, 8, 10, 0.72)',
+    'rgba(0, 0, 0, 0.92)',
+    '#000000',
+  ],
+  light: [
+    'rgba(255, 255, 255, 0.00)',
+    'rgba(250, 250, 252, 0.20)',
+    'rgba(245, 246, 249, 0.45)',
+    'rgba(237, 239, 243, 0.70)',
+    'rgba(229, 231, 235, 0.92)',
+    '#E5E7EB',
+  ],
+};
+
+// --- Inverted Contrast Theme ---
+const TAB_THEMES = {
+  dark: {
+    containerBg: '#FFFFFF',
+    borderColor: 'rgba(0, 0, 0, 0.06)',
+    activeBubbleBg: '#000000',
+    activeIconColor: '#FFFFFF',
+    activeLabelColor: '#FFFFFF',
+    inactiveIconColor: '#71717A',
+    shadowColor: '#000000',
+    shadowOpacity: 0.16,
+  },
+  light: {
+    containerBg: '#18181B',
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    activeBubbleBg: '#FFFFFF',
+    activeIconColor: '#000000',
+    activeLabelColor: '#000000',
+    inactiveIconColor: '#A1A1AA',
+    shadowColor: '#000000',
+    shadowOpacity: 0.28,
+  },
+};
+
+// --- Simple Native-Driven Tab Item ---
+const TabItem = ({ route, isFocused, onPress, onLongPress, tabTheme }) => {
+  const scaleAnim = useRef(new Animated.Value(isFocused ? 1 : 0.95)).current;
 
   useEffect(() => {
-    Animated.spring(animValue, {
-      toValue: focused ? 1 : 0,
-      friction: 6,
-      tension: 100,
+    Animated.spring(scaleAnim, {
+      toValue: isFocused ? 1 : 0.95,
+      friction: 7,
+      tension: 120,
       useNativeDriver: true,
     }).start();
-  }, [focused]);
+  }, [isFocused, scaleAnim]);
 
-  // Spring animations for icon and background bubble
-  const iconScale = animValue.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, 1.08],
-  });
-
-  const bubbleScale = animValue.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.6, 1],
-  });
-
-  const bubbleOpacity = animValue.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, 1],
-  });
-
-  // Dark Mode:  Bubble = White (#FFFFFF), Icon = Black (#000000)
-  // Light Mode: Bubble = Black (#000000), Icon = White (#FFFFFF)
-  const bubbleBgColor = theme.accentBg;
-  const currentIconColor = focused ? theme.accentText : theme.textTertiary;
+  let iconName = 'home-outline';
+  switch (route.name) {
+    case 'Home':
+      iconName = isFocused ? 'home' : 'home-outline';
+      break;
+    case 'Players':
+      iconName = isFocused ? 'person' : 'person-outline';
+      break;
+    case 'Teams':
+      iconName = isFocused ? 'people' : 'people-outline';
+      break;
+    case 'Matches':
+      iconName = isFocused ? 'trophy' : 'trophy-outline';
+      break;
+  }
 
   return (
-    <View style={styles.iconContainer}>
+    <TouchableOpacity
+      activeOpacity={0.8}
+      onPress={onPress}
+      onLongPress={onLongPress}
+      style={styles.touchableWrapper}
+    >
       <Animated.View
         style={[
-          styles.bubble,
-          {
-            backgroundColor: bubbleBgColor,
-            opacity: bubbleOpacity,
-            transform: [{ scale: bubbleScale }],
-          },
+          styles.pillContainer,
+          isFocused
+            ? [
+                styles.activePill,
+                { backgroundColor: tabTheme.activeBubbleBg },
+              ]
+            : styles.inactivePill,
+          { transform: [{ scale: scaleAnim }] },
+        ]}
+      >
+        <Ionicons
+          name={iconName}
+          size={19}
+          color={isFocused ? tabTheme.activeIconColor : tabTheme.inactiveIconColor}
+        />
+
+        {isFocused && (
+          <Text
+            numberOfLines={1}
+            style={[
+              styles.tabLabel,
+              { color: tabTheme.activeLabelColor },
+            ]}
+          >
+            {route.name}
+          </Text>
+        )}
+      </Animated.View>
+    </TouchableOpacity>
+  );
+};
+
+// --- Custom Floating Tab Bar ---
+const CustomTabBar = ({ state, navigation, tabTheme, edgeGradientColors, insets }) => {
+  return (
+    <View pointerEvents="box-none" style={styles.tabBarWrapper}>
+      {/* Background Gradient Fade */}
+      <LinearGradient
+        pointerEvents="none"
+        colors={edgeGradientColors}
+        locations={[0, 0.2, 0.45, 0.7, 0.9, 1]}
+        style={[
+          styles.bottomEdgeGradient,
+          { height: 110 + (insets.bottom > 0 ? insets.bottom : 14) },
         ]}
       />
-      <Animated.View style={{ transform: [{ scale: iconScale }] }}>
-        <Ionicons name={iconName} size={20} color={currentIconColor} />
-      </Animated.View>
+
+      {/* Floating Bar Container */}
+      <View
+        style={[
+          styles.tabBar,
+          {
+            backgroundColor: tabTheme.containerBg,
+            borderColor: tabTheme.borderColor,
+            shadowColor: tabTheme.shadowColor,
+            shadowOpacity: tabTheme.shadowOpacity,
+            bottom: insets.bottom > 0 ? insets.bottom + 10 : 14,
+          },
+        ]}
+      >
+        {state.routes.map((route, index) => {
+          const isFocused = state.index === index;
+
+          const onPress = () => {
+            const event = navigation.emit({
+              type: 'tabPress',
+              target: route.key,
+              canPreventDefault: true,
+            });
+
+            if (!isFocused && !event.defaultPrevented) {
+              navigation.navigate(route.name, route.params, { merge: true });
+            }
+          };
+
+          const onLongPress = () => {
+            navigation.emit({
+              type: 'tabLongPress',
+              target: route.key,
+            });
+          };
+
+          return (
+            <TabItem
+              key={route.key}
+              route={route}
+              isFocused={isFocused}
+              onPress={onPress}
+              onLongPress={onLongPress}
+              tabTheme={tabTheme}
+            />
+          );
+        })}
+      </View>
     </View>
   );
 };
 
-// --- 2. Main Tab Navigation ---
+// --- Main Navigator ---
 const TabNavigation = () => {
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
-  const theme = colorScheme === 'dark' ? dark : light;
+  const isDark = colorScheme === 'dark';
+
+  const tabTheme = isDark ? TAB_THEMES.dark : TAB_THEMES.light;
+  const edgeGradientColors = isDark
+    ? BOTTOM_EDGE_GRADIENTS.dark
+    : BOTTOM_EDGE_GRADIENTS.light;
 
   return (
     <Tab.Navigator
       initialRouteName="Home"
-      screenOptions={({ route }) => ({
+      tabBar={(props) => (
+        <CustomTabBar
+          {...props}
+          tabTheme={tabTheme}
+          edgeGradientColors={edgeGradientColors}
+          insets={insets}
+        />
+      )}
+      screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: theme.textPrimary,
-        tabBarInactiveTintColor: theme.textTertiary,
         tabBarHideOnKeyboard: true,
-        animation: 'shift',
-        tabBarStyle: [
-          styles.tabBar,
-          {
-            backgroundColor: theme.bgSurface,
-            borderColor: theme.borderColor,
-            bottom: insets.bottom > 0 ? insets.bottom : 15,
-          },
-        ],
-        tabBarLabelStyle: styles.tabBarLabel,
-        tabBarItemStyle: styles.tabBarItem,
-        tabBarIcon: ({ focused }) => {
-          let iconName = 'home-outline';
-
-          switch (route.name) {
-            case 'Home':
-              iconName = focused ? 'home' : 'home-outline';
-              break;
-            case 'Players':
-              iconName = focused ? 'person' : 'person-outline';
-              break;
-            case 'Teams':
-              iconName = focused ? 'people' : 'people-outline';
-              break;
-            case 'Matches':
-              iconName = focused ? 'trophy' : 'trophy-outline';
-              break;
-          }
-
-          return (
-            <AnimatedTabIcon
-              focused={focused}
-              iconName={iconName}
-              theme={theme}
-            />
-          );
-        },
-      })}
+      }}
     >
-      <Tab.Screen name="Home" component={Home} options={{ tabBarLabel: 'Home' }} />
-      <Tab.Screen name="Players" component={Players} options={{ tabBarLabel: 'Players' }} />
-      <Tab.Screen name="Teams" component={Teams} options={{ tabBarLabel: 'Teams' }} />
-      <Tab.Screen name="Matches" component={Matches} options={{ tabBarLabel: 'Matches' }} />
+      <Tab.Screen name="Home" component={Home} />
+      <Tab.Screen name="Players" component={Players} />
+      <Tab.Screen name="Teams" component={Teams} />
+      <Tab.Screen name="Matches" component={Matches} />
     </Tab.Navigator>
   );
 };
 
 export default TabNavigation;
 
-// --- 3. Styles ---
 const styles = StyleSheet.create({
+  tabBarWrapper: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  bottomEdgeGradient: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
   tabBar: {
     position: 'absolute',
-    borderTopWidth: 0,
+    left: 48,
+    right: 48,
+    height: 60,
+    borderRadius: 36,
     borderWidth: 1,
-    elevation: 8,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    marginHorizontal: 20,
-    borderRadius: 35,
-    height: 64,
-    paddingBottom: Platform.OS === 'ios' ? 12 : 8,
-    paddingTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 8,
+    elevation: 10,
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 16,
   },
-  tabBarLabel: {
-    fontSize: 10.5,
+  touchableWrapper: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pillContainer: {
+    height: 42,
+    borderRadius: 21,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  activePill: {
+    paddingHorizontal: 16,
+    gap: 7,
+  },
+  inactivePill: {
+    paddingHorizontal: 12,
+  },
+  tabLabel: {
+    fontSize: 13,
     fontWeight: '700',
-    letterSpacing: 0.3,
-    marginTop: 2,
-  },
-  tabBarItem: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  iconContainer: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    width: 48,
-    height: 32,
-  },
-  bubble: {
-    position: 'absolute',
-    width: 44,
-    height: 28,
-    borderRadius: 14,
+    letterSpacing: -0.2,
   },
 });

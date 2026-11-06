@@ -6,20 +6,21 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import DrawerNavigation from './DrawerNavigation';
 import CreateMatch from '../screens/TabScreens/components/CreateMatch';
 import ScoreCard from '../screens/TabScreens/components/ScoreCard';
-import History from '../screens/TabScreens/components/History';
+
 import PlayerProfile from '../screens/TabScreens/components/PlayerProfile';
 import Toss from '../screens/TabScreens/components/Toss';
 import Live from '../screens/TabScreens/components/Live';
 import Setting from '../screens/DrawerScreen/Setting';
 import Notification from '../screens/TabScreens/components/Notification'
-
+import Splash from '../screens/LoadingScreens/Splash'
 import Register from '../screens/Auth/Register'
 import Login from '../screens/Auth/Login'
 import ForgotPassword from '../screens/Auth/ForgotPassword'
 import Confirmation from '../screens/Auth/Confirmation'
+import Converstation from '../screens/DrawerScreen/Converstation'
 import { light, dark } from '../theme/Color';
 import Onboarding from '../screens/LoadingScreens/Onboarding';
-
+import TeamProfile from '../screens/TabScreens/components/TeamProfile'
 const Stack = createNativeStackNavigator();
 
 const StackNavigation = () => {
@@ -52,8 +53,10 @@ const StackNavigation = () => {
           contentStyle: {
             backgroundColor: theme.bgBase,
           },
+          animation: 'slide_from_right'
         }}
       >
+        <Stack.Screen name="Splash" component={Splash} />
         <Stack.Screen name="Onboarding" component={Onboarding} />
         <Stack.Screen name="Register" component={Register} />
         <Stack.Screen name="Login" component={Login} />
@@ -64,11 +67,12 @@ const StackNavigation = () => {
         <Stack.Screen name="Notification" component={Notification} />
         <Stack.Screen name="CreateMatch" component={CreateMatch} />
         <Stack.Screen name="ScoreCard" component={ScoreCard} />
-        <Stack.Screen name="History" component={History} />
         <Stack.Screen name="PlayerProfile" component={PlayerProfile} />
         <Stack.Screen name="Toss" component={Toss} />
         <Stack.Screen name="Live" component={Live} />
         <Stack.Screen name="Setting" component={Setting} />
+        <Stack.Screen name="Converstation" component={Converstation} />
+        <Stack.Screen name='TeamProfile' component={TeamProfile} />
       </Stack.Navigator>
     </NavigationContainer>
   );

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   StyleSheet,
   Text,
@@ -12,24 +12,32 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import { useSelector } from 'react-redux';
 
 import { light, dark } from '../../../theme/Color';
 import { handleEdges } from '../../../utils/edges';
+import { get_api, post_api } from '../../../utils/api';
 
 const Live = () => {
   const colorScheme = useColorScheme();
   const colors = colorScheme === 'dark' ? dark : light;
   const navigation = useNavigation();
   const route = useRoute();
+  const user = useSelector((state) => state?.auth);
 
-  // Match Configuration & Player Names
-  const player1Name = route.params?.player1 || 'Viktor Axelsen';
-  const player2Name = route.params?.player2 || 'Lakshya Sen';
-  const targetPoints = route.params?.targetPoints || 21;
-  const maxCap = route.params?.maxCap || 30;
-  const totalGames = route.params?.totalGames || 3;
+  // Incoming Route Params (Using primitive string ID for stability)
+  const initialMatch = route?.params?.match;
+  const matchId = initialMatch?._id || route?.params?.matchId;
 
-  // Match State
+  // Match Information
+  const [matchData, setMatchData] = useState(initialMatch || {});
+  const player1Name = matchData?.sideA?.displayName || 'Player A';
+  const player2Name = matchData?.sideB?.displayName || 'Player B';
+  const targetPoints = matchData?.rules?.pointsPerGame || 21;
+  const maxCap = matchData?.rules?.maxPointCap || 30;
+  const totalGames = matchData?.rules?.bestOf || 1;
+
+  // Live Scoreboard State
   const [currentGame, setCurrentGame] = useState(1);
   const [player1Score, setPlayer1Score] = useState(0);
   const [player2Score, setPlayer2Score] = useState(0);
@@ -37,134 +45,205 @@ const Live = () => {
   const [player2GamesWon, setPlayer2GamesWon] = useState(0);
   const [completedGames, setCompletedGames] = useState([]);
 
-  // Server state: 1 = Player 1, 2 = Player 2
-  const [server, setServer] = useState(2);
+  // Server state: 1 = Player 1 (sideA), 2 = Player 2 (sideB)
+  const [server, setServer] = useState(1);
   const [courtSide, setCourtSide] = useState('RIGHT COURT'); // 'RIGHT COURT' | 'LEFT COURT'
+  const [canUndo, setCanUndo] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
 
-  // History stack for Undo
-  const [history, setHistory] = useState([]);
-
-  // Match Timer State
-  const [seconds, setSeconds] = useState(9);
+  // Match Timer State with ref to prevent re-render re-fetching
+  const [seconds, setSeconds] = useState(0);
+  const secondsRef = useRef(0);
   const [isPaused, setIsPaused] = useState(false);
+  const timerRef = useRef(null);
 
-  useEffect(() => {
-    let interval = null;
-    if (!isPaused) {
-      interval = setInterval(() => {
-        setSeconds((prev) => prev + 1);
-      }, 1000);
-    }
-    return () => clearInterval(interval);
-  }, [isPaused]);
-
-  // Format seconds to MM:SS
   const formatTime = (secs) => {
     const mins = Math.floor(secs / 60);
     const remSecs = secs % 60;
     return `${mins.toString().padStart(2, '0')}:${remSecs.toString().padStart(2, '0')}`;
   };
 
-  // Add Point
-  const handleAddPoint = (player) => {
-    // Save snapshot for undo
-    setHistory((prev) => [
-      ...prev,
-      {
-        player1Score,
-        player2Score,
-        server,
-        courtSide,
-        currentGame,
-        player1GamesWon,
-        player2GamesWon,
-      },
-    ]);
+  // 1. Synchronize Live State from API responses (Stable Callback)
+  const syncLiveState = useCallback(
+    (liveState, status) => {
+      if (!liveState) return;
 
-    if (player === 1) {
-      const nextScore = player1Score + 1;
-      setPlayer1Score(nextScore);
-      setServer(1);
-      // Badminton Rule: Even = Right, Odd = Left
-      setCourtSide(nextScore % 2 === 0 ? 'RIGHT COURT' : 'LEFT COURT');
-      checkGameWin(nextScore, player2Score, 1);
-    } else {
-      const nextScore = player2Score + 1;
-      setPlayer2Score(nextScore);
-      setServer(2);
-      setCourtSide(nextScore % 2 === 0 ? 'RIGHT COURT' : 'LEFT COURT');
-      checkGameWin(player1Score, nextScore, 2);
-    }
-  };
+      const currentGNum = liveState.currentGameNumber || 1;
+      setCurrentGame(currentGNum);
+      setPlayer1GamesWon(liveState.gamesWonSideA || 0);
+      setPlayer2GamesWon(liveState.gamesWonSideB || 0);
 
-  // Check Game & Match Win Condition
-  const checkGameWin = (s1, s2, winner) => {
-    const minWin = (winner === 1 ? s1 : s2) >= targetPoints && Math.abs(s1 - s2) >= 2;
-    const capWin = (winner === 1 ? s1 : s2) >= maxCap;
+      // Determine Server (1 = sideA, 2 = sideB)
+      const isSideAServer = (liveState.currentServer || 'sideA') === 'sideA';
+      setServer(isSideAServer ? 1 : 2);
 
-    if (minWin || capWin) {
-      const updatedP1Wins = winner === 1 ? player1GamesWon + 1 : player1GamesWon;
-      const updatedP2Wins = winner === 2 ? player2GamesWon + 1 : player2GamesWon;
-      const matchWinTarget = Math.ceil(totalGames / 2);
+      // Active Game Scores
+      const activeGame =
+        liveState.games?.find((g) => g.gameNumber === currentGNum) ||
+        liveState.games?.[liveState.games.length - 1] || {
+          sideAScore: 0,
+          sideBScore: 0,
+        };
 
-      if (updatedP1Wins >= matchWinTarget || updatedP2Wins >= matchWinTarget) {
+      const s1 = activeGame.sideAScore || 0;
+      const s2 = activeGame.sideBScore || 0;
+      setPlayer1Score(s1);
+      setPlayer2Score(s2);
+
+      // Badminton Court Calculation: Even = Right, Odd = Left based on server's score
+      const servingScore = isSideAServer ? s1 : s2;
+      setCourtSide(servingScore % 2 === 0 ? 'RIGHT COURT' : 'LEFT COURT');
+
+      // Completed Games Overview
+      const finished = (liveState.games || [])
+        .filter((g) => g.isCompleted)
+        .map((g) => `${g.sideAScore}-${g.sideBScore}`);
+      setCompletedGames(finished);
+
+      // Undo Availability
+      setCanUndo(Array.isArray(liveState.history) && liveState.history.length > 0);
+
+      // Match Completion Check
+      if (status === 'COMPLETED' || liveState.matchWinner) {
         setIsPaused(true);
-        navigation.navigate('ScoreCard', {
+        const p1Wins = liveState.gamesWonSideA || 0;
+        const p2Wins = liveState.gamesWonSideB || 0;
+        const champion =
+          liveState.matchWinner === 'sideA' || p1Wins > p2Wins
+            ? player1Name
+            : player2Name;
+
+        navigation.replace('ScoreCard', {
+          matchId,
           matchData: {
-            champion: updatedP1Wins > updatedP2Wins ? player1Name : player2Name,
-            finalScore: `${updatedP1Wins} - ${updatedP2Wins}`,
+            champion,
+            finalScore: `${p1Wins} - ${p2Wins}`,
             scores: [
-              { name: player1Name, g1: `${s1}`, g2: `${s2}`, total: `${updatedP1Wins}` },
-              { name: player2Name, g1: `${s2}`, g2: `${s1}`, total: `${updatedP2Wins}` },
+              { name: player1Name, total: `${p1Wins}` },
+              { name: player2Name, total: `${p2Wins}` },
             ],
+            completedGames: finished,
             details: [
-              { label: 'Format', value: 'Singles' },
+              { label: 'Format', value: matchData?.format || 'Singles' },
               { label: 'Match Length', value: `Best of ${totalGames}` },
               { label: 'Points Per Game', value: `${targetPoints} Pts` },
-              { label: 'Duration', value: formatTime(seconds) },
+              { label: 'Duration', value: formatTime(secondsRef.current) },
             ],
           },
         });
-      } else {
-        setCompletedGames((prev) => [...prev, `${s1}-${s2}`]);
-        if (winner === 1) setPlayer1GamesWon(updatedP1Wins);
-        if (winner === 2) setPlayer2GamesWon(updatedP2Wins);
-        setCurrentGame((prev) => prev + 1);
-        setPlayer1Score(0);
-        setPlayer2Score(0);
       }
+    },
+    [matchId, navigation, player1Name, player2Name, targetPoints, totalGames, matchData?.format]
+  );
+
+  // 2. Fetch Live Scoreboard: GET /matches/{id}/live (Stable)
+  const fetchLiveScore = useCallback(async () => {
+    if (!matchId) return;
+    try {
+      const res = await get_api(`/matches/${matchId}/live`, user?.token);
+      if (res?.success) {
+        if (res.rules || res.sideA || res.sideB) {
+          setMatchData((prev) => ({ ...prev, ...res }));
+        }
+        syncLiveState(res.liveState, res.status);
+      }
+    } catch (error) {
+      console.error('Failed to fetch live score:', error);
+    }
+  }, [matchId, user?.token, syncLiveState]);
+
+  // 3. Initial Mount Only: Calls API once when matchId is available
+  useEffect(() => {
+    if (initialMatch?.liveState) {
+      syncLiveState(initialMatch.liveState, initialMatch.status);
+    }
+    fetchLiveScore();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matchId]);
+
+  // 4. Timer: Kept isolated so it doesn't trigger network re-fetching
+  useEffect(() => {
+    if (!isPaused) {
+      timerRef.current = setInterval(() => {
+        setSeconds((prev) => {
+          secondsRef.current = prev + 1;
+          return prev + 1;
+        });
+      }, 1000);
+    } else {
+      clearInterval(timerRef.current);
+    }
+    return () => clearInterval(timerRef.current);
+  }, [isPaused]);
+
+  // 5. Record Point API: POST /matches/{id}/live/point
+  const handleAddPoint = async (playerNumber) => {
+    if (isUpdating) return;
+    const side = playerNumber === 1 ? 'sideA' : 'sideB';
+
+    try {
+      setIsUpdating(true);
+      const res = await post_api(
+        `/matches/${matchId}/live/point`,
+        { side },
+        user?.token
+      );
+
+      if (res?.success) {
+        syncLiveState(res.liveState, res.status);
+      } else {
+        Alert.alert('Error', res?.message || 'Failed to record point.');
+      }
+    } catch (error) {
+      Alert.alert('Error', error?.message || 'Network error recording point.');
+    } finally {
+      setIsUpdating(false);
     }
   };
 
-  // Undo Last Point
-  const handleUndo = () => {
-    if (history.length === 0) return;
-    const lastState = history[history.length - 1];
-    setPlayer1Score(lastState.player1Score);
-    setPlayer2Score(lastState.player2Score);
-    setServer(lastState.server);
-    setCourtSide(lastState.courtSide);
-    setCurrentGame(lastState.currentGame);
-    setPlayer1GamesWon(lastState.player1GamesWon);
-    setPlayer2GamesWon(lastState.player2GamesWon);
-    setHistory((prev) => prev.slice(0, -1));
+  // 6. Undo Point API: POST /matches/{id}/live/undo
+  const handleUndo = async () => {
+    if (isUpdating || !canUndo) return;
+
+    try {
+      setIsUpdating(true);
+      const res = await post_api(
+        `/matches/${matchId}/live/undo`,
+        {},
+        user?.token
+      );
+
+      if (res?.success) {
+        syncLiveState(res.liveState, res.status);
+      } else {
+        Alert.alert('Notice', res?.message || 'No more points to undo.');
+      }
+    } catch (error) {
+      Alert.alert('Error', error?.message || 'Failed to undo point.');
+    } finally {
+      setIsUpdating(false);
+    }
   };
 
-  // Swap Ends
+  // 7. Swap Service Court Ends
   const handleSwapCourtEnds = () => {
     setCourtSide((prev) =>
       prev === 'RIGHT COURT' ? 'LEFT COURT' : 'RIGHT COURT'
     );
   };
 
-  // Prompt Exit/Stop Match
+  // 8. Exit Alert
   const handleStopMatch = () => {
     Alert.alert(
-      'End Match?',
-      'Are you sure you want to stop this match scoring session?',
+      'End Match Session?',
+      'Are you sure you want to exit this live scoring screen?',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'End Match', style: 'destructive', onPress: () => navigation.goBack() },
+        {
+          text: 'Exit',
+          style: 'destructive',
+          onPress: () => navigation.goBack(),
+        },
       ]
     );
   };
@@ -172,7 +251,7 @@ const Live = () => {
   return (
     <SafeAreaView
       style={[styles.safeArea, { backgroundColor: colors.bgBase }]}
-      edges={handleEdges ? handleEdges() : ['top', 'left', 'right', 'bottom']}
+      edges={handleEdges()}
     >
       <StatusBar
         barStyle={colorScheme === 'dark' ? 'light-content' : 'dark-content'}
@@ -210,8 +289,9 @@ const Live = () => {
               styles.circleButton,
               { backgroundColor: colors.bgSurface, borderColor: colors.borderColor },
             ]}
+            onPress={fetchLiveScore}
           >
-            <Ionicons name="time-outline" size={19} color={colors.textPrimary} />
+            <Ionicons name="refresh-outline" size={18} color={colors.textPrimary} />
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -243,7 +323,7 @@ const Live = () => {
 
         {/* Main Scores Grid */}
         <View style={styles.scoringGrid}>
-          {/* Player 1 Card */}
+          {/* Player 1 Card (Side A) */}
           <View
             style={[
               styles.playerCard,
@@ -264,7 +344,7 @@ const Live = () => {
               {player1GamesWon} Games Won
             </Text>
 
-            {/* Server Badge or Placeholder spacer */}
+            {/* Server Badge or Spacer */}
             <View style={styles.servingBadgeWrapper}>
               {server === 1 ? (
                 <View style={[styles.servingBadge, { backgroundColor: colors.accentBg }]}>
@@ -285,7 +365,11 @@ const Live = () => {
             {/* Add Point Action */}
             <TouchableOpacity
               activeOpacity={0.85}
-              style={[styles.addPointButton, { backgroundColor: colors.accentBg }]}
+              disabled={isUpdating}
+              style={[
+                styles.addPointButton,
+                { backgroundColor: colors.accentBg, opacity: isUpdating ? 0.7 : 1 },
+              ]}
               onPress={() => handleAddPoint(1)}
             >
               <Text style={[styles.addPointText, { color: colors.accentText }]}>
@@ -294,7 +378,7 @@ const Live = () => {
             </TouchableOpacity>
           </View>
 
-          {/* Player 2 Card */}
+          {/* Player 2 Card (Side B) */}
           <View
             style={[
               styles.playerCard,
@@ -307,14 +391,15 @@ const Live = () => {
           >
             <Text
               numberOfLines={1}
-              style={[styles.playerName, { color: colors.textPrimary }]}>
+              style={[styles.playerName, { color: colors.textPrimary }]}
+            >
               {player2Name}
             </Text>
             <Text style={[styles.gamesWonText, { color: colors.textTertiary }]}>
               {player2GamesWon} Games Won
             </Text>
 
-            {/* Server Badge or Placeholder spacer */}
+            {/* Server Badge or Spacer */}
             <View style={styles.servingBadgeWrapper}>
               {server === 2 ? (
                 <View style={[styles.servingBadge, { backgroundColor: colors.accentBg }]}>
@@ -335,7 +420,11 @@ const Live = () => {
             {/* Add Point Action */}
             <TouchableOpacity
               activeOpacity={0.85}
-              style={[styles.addPointButton, { backgroundColor: colors.accentBg }]}
+              disabled={isUpdating}
+              style={[
+                styles.addPointButton,
+                { backgroundColor: colors.accentBg, opacity: isUpdating ? 0.7 : 1 },
+              ]}
               onPress={() => handleAddPoint(2)}
             >
               <Text style={[styles.addPointText, { color: colors.accentText }]}>
@@ -364,9 +453,14 @@ const Live = () => {
         <View style={styles.actionRow}>
           <TouchableOpacity
             activeOpacity={0.7}
+            disabled={!canUndo || isUpdating}
             style={[
               styles.secondaryActionButton,
-              { backgroundColor: colors.bgSurface, borderColor: colors.borderColor },
+              {
+                backgroundColor: colors.bgSurface,
+                borderColor: colors.borderColor,
+                opacity: !canUndo || isUpdating ? 0.45 : 1,
+              },
             ]}
             onPress={handleUndo}
           >

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import {
     StyleSheet,
     Text,
@@ -9,32 +9,93 @@ import {
     StatusBar,
     Animated,
     Easing,
+    Platform,
+    RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import { useSelector } from 'react-redux';
 
 import { light, dark } from '../../../theme/Color';
 import { handleEdges } from '../../../utils/edges';
+import { post_api, get_api } from '../../../utils/api';
 
 const Toss = () => {
     const colorScheme = useColorScheme();
     const colors = colorScheme === 'dark' ? dark : light;
     const navigation = useNavigation();
+    const user = useSelector(state => state.auth);
     const route = useRoute();
 
-    // Players from route params or defaults
-    const player1 = route.params?.player1 || 'Viktor Axelsen';
-    const player2 = route.params?.player2 || 'Lakshya Sen';
+    const initialMatch = route?.params?.match || {};
+    const [matchData, setMatchData] = useState(initialMatch);
+    const [refreshing, setRefreshing] = useState(false);
+
+    // Dynamically derive names (Works seamlessly for both Singles and Doubles)
+    const player1 = matchData?.sideA?.displayName || 'Player 1';
+    const player2 = matchData?.sideB?.displayName || 'Player 2';
 
     // State
     const [isFlipping, setIsFlipping] = useState(false);
     const [tossResult, setTossResult] = useState(null); // 'HEADS' | 'TAILS'
-    const [winner, setWinner] = useState(player1);
-    const [election, setElection] = useState('Serve First'); // 'Serve First' | 'Receive'
+    const [winSide, setWinSide] = useState('sideA'); // Tracks winner ('sideA' | 'sideB')
+    const [election, setElection] = useState('Serve'); // 'Serve' | 'Receive'
 
-    // Coin Flip Animation values
+    // Dynamic Toast State
+    const [toastConfig, setToastConfig] = useState({
+        visible: false,
+        message: '',
+        type: 'info', // 'info' | 'error' | 'success'
+    });
+    const toastAnim = useRef(new Animated.Value(-120)).current;
+    const toastTimeout = useRef(null);
+
+    // Coin Flip Anim values
     const flipAnim = useRef(new Animated.Value(0)).current;
+
+    const showToast = useCallback((message, type = 'info') => {
+        setToastConfig({ visible: true, message, type });
+
+        Animated.spring(toastAnim, {
+            toValue: 0,
+            useNativeDriver: true,
+            bounciness: 6,
+            speed: 14,
+        }).start();
+
+        if (toastTimeout.current) {
+            clearTimeout(toastTimeout.current);
+        }
+
+        toastTimeout.current = setTimeout(() => {
+            Animated.timing(toastAnim, {
+                toValue: -140,
+                duration: 280,
+                easing: Easing.in(Easing.ease),
+                useNativeDriver: true,
+            }).start(() => {
+                setToastConfig(prev => ({ ...prev, visible: false }));
+            });
+        }, 3200);
+    }, [toastAnim]);
+
+    // Pull-to-refresh to fetch updated match status (e.g., waiting for acceptance)
+    const onRefresh = useCallback(async () => {
+        if (!matchData?._id) return;
+        setRefreshing(true);
+        try {
+            const res = await get_api(`/matches/${matchData._id}`, user?.token);
+            if (res?.success && res?.match) {
+                setMatchData(res.match);
+            }
+        } catch (error) {
+            console.error('Error refreshing toss match details:', error);
+        } finally {
+            setRefreshing(false);
+        }
+    }, [matchData?._id, user?.token]);
 
     const handleFlipCoin = () => {
         if (isFlipping) return;
@@ -42,7 +103,6 @@ const Toss = () => {
         setIsFlipping(true);
         flipAnim.setValue(0);
 
-        // Randomize Heads or Tails
         const outcome = Math.random() < 0.5 ? 'HEADS' : 'TAILS';
 
         Animated.timing(flipAnim, {
@@ -69,6 +129,56 @@ const Toss = () => {
 
     const hasFlipped = tossResult !== null && !isFlipping;
 
+    const handle_match = async () => {
+        if (matchData.status === 'INVITATION_PENDING') {
+            showToast('Before toss, opponent must accept the match challenge. Pull down to refresh.', 'error');
+            return;
+        }
+
+        const body = {
+            winnerSide: winSide,
+            choice: election,
+        };
+
+        try {
+            const res = await post_api(`/matches/${matchData?._id}/toss`, body, user?.token);
+            if (res?.success) {
+                showToast('Toss recorded! Starting match...', 'success');
+                setTimeout(() => {
+                    navigation.replace('Live', { match: res.match || matchData });
+                }, 600);
+            } else {
+                showToast(res?.message || 'Unable to record toss result.', 'error');
+            }
+        } catch (error) {
+            showToast(error?.message || 'Network connection failed. Please retry.', 'error');
+        }
+    };
+
+    const getToastStyle = () => {
+        switch (toastConfig.type) {
+            case 'success':
+                return styles.toastSuccess;
+            case 'error':
+                return styles.toastError;
+            case 'info':
+            default:
+                return styles.toastInfo;
+        }
+    };
+
+    const getToastIcon = () => {
+        switch (toastConfig.type) {
+            case 'success':
+                return <Ionicons name="checkmark-circle" size={20} color="#FFFFFF" />;
+            case 'error':
+                return <Ionicons name="alert-circle" size={20} color="#FFFFFF" />;
+            case 'info':
+            default:
+                return <Ionicons name="information-circle" size={20} color="#FFFFFF" />;
+        }
+    };
+
     return (
         <SafeAreaView
             style={[styles.safeArea, { backgroundColor: colors.bgBase }]}
@@ -78,6 +188,22 @@ const Toss = () => {
                 barStyle={colorScheme === 'dark' ? 'light-content' : 'dark-content'}
                 backgroundColor={colors.bgBase}
             />
+
+            {/* Custom Dynamic Animated Toast */}
+            {toastConfig.visible && (
+                <Animated.View
+                    style={[
+                        styles.toastContainer,
+                        getToastStyle(),
+                        { transform: [{ translateY: toastAnim }] },
+                    ]}
+                >
+                    <View style={styles.toastIconWrapper}>{getToastIcon()}</View>
+                    <Text numberOfLines={2} style={styles.toastText}>
+                        {toastConfig.message}
+                    </Text>
+                </Animated.View>
+            )}
 
             {/* Screen Header */}
             <View style={[styles.header, { borderBottomColor: colors.borderColor }]}>
@@ -97,6 +223,14 @@ const Toss = () => {
             <ScrollView
                 contentContainerStyle={styles.scrollContent}
                 showsVerticalScrollIndicator={false}
+                refreshControl={
+                    <RefreshControl
+                        refreshing={refreshing}
+                        onRefresh={onRefresh}
+                        tintColor={colors.textPrimary}
+                        colors={[colors.textPrimary]}
+                    />
+                }
             >
                 {/* Subtitle & Matchup Title */}
                 <View style={styles.titleSection}>
@@ -125,10 +259,7 @@ const Toss = () => {
                                 },
                             ]}
                         >
-                            <Text style={styles.coinEmoji}>🏸</Text>
-                            <Text style={[styles.coinText, { color: colors.textPrimary }]}>
-                                {tossResult || 'HEADS'}
-                            </Text>
+                            <MaterialCommunityIcons name="badminton" color={colors.textPrimary} size={60} />
                         </Animated.View>
                     </TouchableOpacity>
 
@@ -162,17 +293,17 @@ const Toss = () => {
                                     activeOpacity={0.8}
                                     style={[
                                         styles.toggleButton,
-                                        winner === player1
+                                        winSide === 'sideA'
                                             ? { backgroundColor: colors.accentBg }
                                             : { backgroundColor: colors.bgSurface, borderColor: colors.borderColor, borderWidth: 1 },
                                     ]}
-                                    onPress={() => setWinner(player1)}
+                                    onPress={() => setWinSide('sideA')}
                                 >
                                     <Text
                                         numberOfLines={1}
                                         style={[
                                             styles.toggleButtonText,
-                                            { color: winner === player1 ? colors.accentText : colors.textPrimary },
+                                            { color: winSide === 'sideA' ? colors.accentText : colors.textPrimary },
                                         ]}
                                     >
                                         {player1}
@@ -183,17 +314,17 @@ const Toss = () => {
                                     activeOpacity={0.8}
                                     style={[
                                         styles.toggleButton,
-                                        winner === player2
+                                        winSide === 'sideB'
                                             ? { backgroundColor: colors.accentBg }
                                             : { backgroundColor: colors.bgSurface, borderColor: colors.borderColor, borderWidth: 1 },
                                     ]}
-                                    onPress={() => setWinner(player2)}
+                                    onPress={() => setWinSide('sideB')}
                                 >
                                     <Text
                                         numberOfLines={1}
                                         style={[
                                             styles.toggleButtonText,
-                                            { color: winner === player2 ? colors.accentText : colors.textPrimary },
+                                            { color: winSide === 'sideB' ? colors.accentText : colors.textPrimary },
                                         ]}
                                     >
                                         {player2}
@@ -212,19 +343,19 @@ const Toss = () => {
                                     activeOpacity={0.8}
                                     style={[
                                         styles.toggleButton,
-                                        election === 'Serve First'
+                                        election === 'Serve'
                                             ? { backgroundColor: colors.accentBg }
                                             : { backgroundColor: colors.bgSurface, borderColor: colors.borderColor, borderWidth: 1 },
                                     ]}
-                                    onPress={() => setElection('Serve First')}
+                                    onPress={() => setElection('Serve')}
                                 >
                                     <Text
                                         style={[
                                             styles.toggleButtonText,
-                                            { color: election === 'Serve First' ? colors.accentText : colors.textPrimary },
+                                            { color: election === 'Serve' ? colors.accentText : colors.textPrimary },
                                         ]}
                                     >
-                                        Serve First
+                                        Serve
                                     </Text>
                                 </TouchableOpacity>
 
@@ -254,12 +385,10 @@ const Toss = () => {
                         <TouchableOpacity
                             activeOpacity={0.85}
                             style={[styles.startButton, { backgroundColor: colors.accentBg }]}
-                            onPress={() => {
-                                navigation.navigate('Live');
-                            }}
+                            onPress={handle_match}
                         >
                             <Text style={[styles.startButtonText, { color: colors.accentText }]}>
-                                Start Match 🚀
+                                Start Match
                             </Text>
                         </TouchableOpacity>
                     </View>
@@ -274,6 +403,46 @@ export default Toss;
 const styles = StyleSheet.create({
     safeArea: {
         flex: 1,
+    },
+    toastContainer: {
+        position: 'absolute',
+        top: Platform.OS === 'ios' ? 44 : 32,
+        left: 18,
+        right: 18,
+        minHeight: 50,
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        borderRadius: 14,
+        flexDirection: 'row',
+        alignItems: 'center',
+        zIndex: 9999,
+        elevation: 12,
+        shadowColor: '#000000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.18,
+        shadowRadius: 8,
+    },
+    toastIconWrapper: {
+        marginRight: 10,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    toastText: {
+        flex: 1,
+        color: '#FFFFFF',
+        fontSize: 13.5,
+        fontWeight: '700',
+        letterSpacing: -0.2,
+        lineHeight: 18,
+    },
+    toastSuccess: {
+        backgroundColor: '#10B981',
+    },
+    toastError: {
+        backgroundColor: '#EF4444',
+    },
+    toastInfo: {
+        backgroundColor: '#2563EB',
     },
     header: {
         height: 56,
@@ -331,15 +500,6 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.08,
         shadowRadius: 10,
         elevation: 4,
-    },
-    coinEmoji: {
-        fontSize: 34,
-        marginBottom: 6,
-    },
-    coinText: {
-        fontSize: 13,
-        fontWeight: '800',
-        letterSpacing: 1,
     },
     statusText: {
         fontSize: 15,

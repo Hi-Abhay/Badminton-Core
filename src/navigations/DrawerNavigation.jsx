@@ -13,40 +13,53 @@ import {
   DrawerItemList,
 } from '@react-navigation/drawer';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import { useSelector, useDispatch } from 'react-redux';
 
 import TabNavigation from './TabNavigation';
 import Friends from '../screens/DrawerScreen/Friends';
 import Profile from '../screens/DrawerScreen/Profile';
-import Setting from '../screens/DrawerScreen/Setting'
+import Chats from '../screens/DrawerScreen/Chats'
+import Setting from '../screens/DrawerScreen/Setting';
 import { light, dark } from '../theme/Color';
+
+import { logout } from '../store/authSlice'; // <-- Adjust this path to your slice file
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 const Drawer = createDrawerNavigator();
 
 const CustomDrawerContent = (props) => {
   const { colors, navigation } = props;
+  const dispatch = useDispatch();
+  const user = useSelector((state) => state.auth);
 
   const handleLogout = () => {
-    // Insert authentication logout / session clearance logic here
-    navigation.closeDrawer();
+    // 1. Reset Redux auth state to initialState
+    dispatch(logout());
+
+    // 2. Reset navigation stack to Login at index 0
+    navigation.reset({
+      index: 0,
+      routes: [{ name: 'Login' }],
+    });
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.bgSurface }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.bgSurface }]}>
       {/* Top Profile Section */}
       <View style={styles.profileSection}>
         <View style={[styles.avatarWrapper, { borderColor: colors.borderColor }]}>
           <Image
             source={{
-              uri: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80',
+              uri: user?.image,
             }}
             style={styles.avatar}
           />
         </View>
         <Text style={[styles.userName, { color: colors.textPrimary }]} numberOfLines={1}>
-          Alex Chen
+          {user?.fullName || 'Alex Chen'}
         </Text>
         <Text style={[styles.userEmail, { color: colors.textTertiary }]} numberOfLines={1}>
-          alex.chen@badmintoncore.com
+          {user?.email || 'alex.chen@badmintoncore.com'}
         </Text>
       </View>
 
@@ -74,7 +87,7 @@ const CustomDrawerContent = (props) => {
         <Ionicons name="log-out-outline" size={22} color={colors.danger} />
         <Text style={[styles.logoutText, { color: colors.danger }]}>Log Out</Text>
       </TouchableOpacity>
-    </View>
+    </SafeAreaView>
   );
 };
 
@@ -111,8 +124,24 @@ const DrawerNavigation = () => {
         component={TabNavigation}
         options={{
           drawerLabel: 'Home',
+          drawerLabelStyle: {
+            fontSize: 15
+          },
           drawerIcon: ({ color, size }) => (
-            <Ionicons name="home-outline" size={size} color={color} />
+            <Ionicons name="home-outline" size={18} color={color} />
+          ),
+        }}
+      />
+      <Drawer.Screen
+        name="Chats"
+        component={Chats}
+        options={{
+          drawerLabel: 'Chats',
+          drawerLabelStyle: {
+            fontSize: 15
+          },
+          drawerIcon: ({ color, size }) => (
+            <Ionicons name="chatbox-ellipses-outline" size={18} color={color} />
           ),
         }}
       />
@@ -121,8 +150,11 @@ const DrawerNavigation = () => {
         component={Friends}
         options={{
           drawerLabel: 'Connections',
+          drawerLabelStyle: {
+            fontSize: 15
+          },
           drawerIcon: ({ color, size }) => (
-            <Ionicons name="link-outline" size={size} color={color} />
+            <Ionicons name="link-outline" size={18} color={color} />
           ),
         }}
       />
@@ -131,8 +163,11 @@ const DrawerNavigation = () => {
         component={Profile}
         options={{
           drawerLabel: 'Profile',
+          drawerLabelStyle: {
+            fontSize: 15
+          },
           drawerIcon: ({ color, size }) => (
-            <Ionicons name="person-outline" size={size} color={color} />
+            <Ionicons name="person-outline" size={18} color={color} />
           ),
         }}
       />
@@ -141,8 +176,11 @@ const DrawerNavigation = () => {
         component={Setting}
         options={{
           drawerLabel: 'Setting',
+          drawerLabelStyle: {
+            fontSize: 15
+          },
           drawerIcon: ({ color, size }) => (
-            <Ionicons name="settings-outline" size={size} color={color} />
+            <Ionicons name="settings-outline" size={18} color={color} />
           ),
         }}
       />
@@ -158,7 +196,7 @@ const styles = StyleSheet.create({
   },
   profileSection: {
     paddingHorizontal: 20,
-    paddingTop: 54,
+    paddingTop: 20,
     paddingBottom: 18,
   },
   avatarWrapper: {

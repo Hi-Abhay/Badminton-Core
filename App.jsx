@@ -1,26 +1,81 @@
+// import 'react-native-gesture-handler';
+// import React from 'react';
+// import { StyleSheet } from 'react-native';
+// import { SafeAreaProvider } from 'react-native-safe-area-context';
+// import { Provider } from 'react-redux';
+// import { PersistGate } from 'redux-persist/integration/react';
+// import { store, persistor } from './src/store/store'; // Update this path if your store is in a different folder
+// import StackNavigation from './src/navigations/StackNavigation';
+// const App = () => {
+//   return (
+//     <Provider store={store}>
+//       <PersistGate
+//         loading={false}
+//         persistor={persistor}
+//       >
+//         <SafeAreaProvider style={styles.root}>
+//           <StackNavigation />
+//         </SafeAreaProvider>
+//       </PersistGate>
+//     </Provider>
+//   );
+// };
+
+// const styles = StyleSheet.create({
+//   root: {
+//     flex: 1,
+//   },
+//   loadingContainer: {
+//     flex: 1,
+//     justifyContent: 'center',
+//     alignItems: 'center',
+//   },
+// });
+
+// export default App;
+
+
 import 'react-native-gesture-handler';
-import React, { useState, useCallback } from 'react';
-import { StatusBar, useColorScheme, StyleSheet, View } from 'react-native';
+import React from 'react';
+import { StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { Provider } from 'react-redux';
+import { PersistGate } from 'redux-persist/integration/react';
+import BootSplash from 'react-native-bootsplash'; // 1. Import BootSplash
+
+import { store, persistor } from './src/store/store'; 
 import StackNavigation from './src/navigations/StackNavigation';
 
 const App = () => {
-  const colorScheme = useColorScheme();
-  const theme = colorScheme === 'light' ? 'light' : 'dark';
-  const backgroundColor = theme === 'dark' ? '#000000' : '#F4F4F5';
-  const barStyle = theme === 'dark' ? 'light-content' : 'dark-content';
+  
+  // 2. Create a function to hide the splash screen
+  const handleBeforeLift = () => {
+    BootSplash.hide({ fade: true });
+  };
 
   return (
-    <SafeAreaProvider style={styles.root}>
-      <StatusBar barStyle={barStyle} backgroundColor={backgroundColor} />
+    <Provider store={store}>
+      <PersistGate
+        loading={null} // Changed to null so nothing renders behind the splash screen while loading
+        persistor={persistor}
+        onBeforeLift={handleBeforeLift} // 3. Hide the splash screen right as Redux finishes loading
+      >
+        <SafeAreaProvider style={styles.root}>
           <StackNavigation />
-    </SafeAreaProvider>
+        </SafeAreaProvider>
+      </PersistGate>
+    </Provider>
   );
 };
 
 const styles = StyleSheet.create({
   root: {
     flex: 1,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
 

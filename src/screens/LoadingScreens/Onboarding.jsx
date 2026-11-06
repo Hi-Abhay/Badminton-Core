@@ -4,7 +4,6 @@ import {
   Text,
   View,
   FlatList,
-  Image,
   Dimensions,
   TouchableOpacity,
   useColorScheme,
@@ -14,7 +13,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import LinearGradient from 'react-native-linear-gradient';
+import Video from 'react-native-video';
 
+// Video Import
+import SplashVideo from '../../assets/video/Splash.mp4';
 import { light, dark } from '../../theme/Color';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -22,27 +24,21 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const SLIDES = [
   {
     id: '1',
-    title: 'Book Courts\nInstantly',
+    title: 'Connect &\nTrack Scores',
     description:
-      'Quickly find and reserve nearby badminton courts without calls or waiting.',
-    imageUri:
-      'https://imgs.search.brave.com/wgPMzGla0-XDKSB2VihleokukDmxVQIEjdXudas3_3U/rs:fit:860:0:0:0/g:ce/aHR0cHM6Ly9wbHVz/LnVuc3BsYXNoLmNv/bS9wcmVtaXVtX3Bo/b3RvLTE2NzAwMDIy/NzI0OTEtM2QzZjhm/NWMwMGE1P2ZtPWpw/ZyZxPTYwJnc9MzAw/MCZhdXRvPWZvcm1h/dCZmaXQ9Y3JvcCZp/eGxpYj1yYi00LjEu/MCZpeGlkPU5Id3hN/akEzZkRBPQ',
+      'Play with friends and manage your match scores in real-time. Your entire match history and stats are permanently saved.',
   },
   {
     id: '2',
-    title: 'Come Hang out\nand Join The\nTournaments!',
+    title: 'Chat & Watch\nLive Matches',
     description:
-      'Compete in local tournaments and friendly matches. Track your progress and climb the ranks.',
-    imageUri:
-      'https://imgs.search.brave.com/squWVhGRt3deREzJO4IwSqxcn1q_x8te7fDi3In2R4U/rs:fit:860:0:0:0/g:ce/aHR0cHM6Ly9wbmcu/cG5ndHJlZS5jb20v/dGh1bWJfYmFjay9m/aDI2MC9iYWNrZ3Jv/dW5kLzIwMjUwNjE4/L3BuZ3RyZWUtZmll/cnktYmFkbWludG9u/LXBsYXllci1pbi1h/Y3Rpb24tZHluYW1p/Yy1zcG9ydC1pbWFn/ZV8xNzQzNzMxOC5q/cGc?w=1000&auto=format&fit=crop&q=80',
+      "Stay connected with built-in chat. Spectate your mutual friends' matches live as the action happens on the court.",
   },
   {
     id: '3',
-    title: 'Build Your\nCommunity',
+    title: 'Form Teams &\nCompete',
     description:
-      'Connect with players at your skill level. Find partners, join teams, and grow together.',
-    imageUri:
-      'https://images.unsplash.com/photo-1541534741688-6078c6bfb5c5?w=1000&auto=format&fit=crop&q=80',
+      'Create your own doubles team, invite a partner, and challenge other teams to rise to the top.',
   },
 ];
 
@@ -77,23 +73,14 @@ const Onboarding = () => {
 
   const isLastSlide = currentIndex === SLIDES.length - 1;
 
-  // Uses theme-matched transparent base colors to avoid muddy gray bands during crossfade
   const gradientColors = isDark
     ? ['rgba(0, 0, 0, 0)', 'rgba(0, 0, 0, 0.45)', 'rgba(0, 0, 0, 0.9)', theme.bgBase]
     : ['rgba(244, 244, 245, 0)', 'rgba(244, 244, 245, 0.45)', 'rgba(244, 244, 245, 0.9)', theme.bgBase];
 
   const renderSlide = ({ item }) => {
     return (
-      <View style={[styles.slideContainer, { backgroundColor: theme.bgBase }]}>
-        {/* Top Visual Artwork */}
+      <View style={styles.slideContainer}>
         <View style={styles.imageWrapper}>
-          <Image
-            source={{ uri: item.imageUri }}
-            style={styles.heroImage}
-            resizeMode="cover"
-          />
-
-          {/* Smooth Linear Gradient Bleed */}
           <LinearGradient
             colors={gradientColors}
             locations={[0, 0.45, 0.8, 1]}
@@ -101,8 +88,7 @@ const Onboarding = () => {
           />
         </View>
 
-        {/* Text Details Area */}
-        <View style={styles.textContainer}>
+        <View style={[styles.textContainer, { backgroundColor: theme.bgBase }]}>
           <Text style={[styles.title, { color: theme.textPrimary }]}>
             {item.title}
           </Text>
@@ -117,12 +103,26 @@ const Onboarding = () => {
   return (
     <View style={[styles.container, { backgroundColor: theme.bgBase }]}>
       <StatusBar
-        barStyle={isDark ? 'light-content' : 'dark-content'}
+        barStyle={'light-content'}
         translucent
         backgroundColor="transparent"
       />
 
-      {/* Slide Carousel */}
+      {/* INSTANT PLAYBACK VIDEO CONFIGURATION */}
+      <Video
+        source={SplashVideo}
+        style={StyleSheet.absoluteFill}
+        resizeMode="cover"
+        repeat={true}
+        muted={true}
+        paused={false}           // Explicitly force play immediately
+        rate={1.0}               // Explicitly set speed
+        hideShutterView={true}   // Hides black screen before first frame
+        playInBackground={false}
+        playWhenInactive={false}
+      />
+
+      {/* PERFORMANCE BOOSTED FLATLIST */}
       <FlatList
         ref={flatListRef}
         data={SLIDES}
@@ -133,9 +133,14 @@ const Onboarding = () => {
         showsHorizontalScrollIndicator={false}
         bounces={false}
         onMomentumScrollEnd={handleScroll}
+        style={styles.flatList}
+        // These 3 lines stop the FlatList from rendering off-screen slides initially, 
+        // freeing up the CPU so the video can start instantly.
+        initialNumToRender={1}
+        maxToRenderPerBatch={1}
+        windowSize={2}
       />
 
-      {/* Bottom Sticky Action Deck */}
       <View
         style={[
           styles.footerWrapper,
@@ -145,7 +150,6 @@ const Onboarding = () => {
           },
         ]}
       >
-        {/* Capsule Pagination Indicator */}
         <View
           style={[
             styles.paginationCapsule,
@@ -168,23 +172,17 @@ const Onboarding = () => {
           })}
         </View>
 
-        {/* Action Pill Button */}
         <TouchableOpacity
           activeOpacity={0.85}
           onPress={handleNext}
           style={[styles.actionButton, { backgroundColor: theme.accentBg }]}
         >
-          {/* Left Sparkle Badge */}
           <View style={[styles.buttonBadge, { backgroundColor: theme.accentText }]}>
             <Ionicons name="sparkles" size={17} color={theme.accentBg} />
           </View>
-
-          {/* Dynamic Label */}
           <Text style={[styles.actionButtonText, { color: theme.accentText }]}>
             {isLastSlide ? 'Get Started' : 'Next'}
           </Text>
-
-          {/* Right Arrow Badge */}
           <View style={[styles.buttonBadge, { backgroundColor: theme.accentText }]}>
             <Ionicons name="arrow-forward" size={18} color={theme.accentBg} />
           </View>
@@ -200,32 +198,32 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  flatList: {
+    flex: 1,
+    zIndex: 2,
+  },
   slideContainer: {
     width: SCREEN_WIDTH,
     flex: 1,
+    backgroundColor: 'transparent',
   },
   imageWrapper: {
     width: '100%',
-    height: SCREEN_HEIGHT * 0.54,
+    height: SCREEN_HEIGHT * 0.60,
     position: 'relative',
-    overflow: 'hidden',
-  },
-  heroImage: {
-    width: '100%',
-    height: '100%',
+    backgroundColor: 'transparent',
   },
   gradientOverlay: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-    height: 180, // Generous height for a smooth transition into text
+    height: 200,
   },
   textContainer: {
     paddingHorizontal: 28,
-    paddingTop: 16,
     flex: 1,
-    justifyContent: 'flex-start',
+    justifyContent: 'center',
   },
   title: {
     fontSize: 34,
@@ -244,6 +242,7 @@ const styles = StyleSheet.create({
   footerWrapper: {
     paddingHorizontal: 24,
     paddingTop: 8,
+    zIndex: 3,
   },
   paginationCapsule: {
     flexDirection: 'row',

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CLIENT_ID</key>
+	<string>993194885332-u7mtqsbjd7athrfgsf7lk92leu22jmt3.apps.googleusercontent.com</string>
+	<key>REVERSED_CLIENT_ID</key>
+	<string>com.googleusercontent.apps.993194885332-u7mtqsbjd7athrfgsf7lk92leu22jmt3</string>
+	<key>ANDROID_CLIENT_ID</key>
+	<string>993194885332-9r2i917njbqv8vl74k9g7jsit3gglcgl.apps.googleusercontent.com</string>
+	<key>API_KEY</key>
+	<string>AIzaSyBvfiPTF_-E0MBIpk-Fw5SG89pQNERFFkU</string>
+	<key>GCM_SENDER_ID</key>
+	<string>993194885332</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>com.badmintoncore</string>
+	<key>PROJECT_ID</key>
+	<string>badmintoncore-8dcd7</string>
+	<key>STORAGE_BUCKET</key>
+	<string>badmintoncore-8dcd7.firebasestorage.app</string>
+	<key>IS_ADS_ENABLED</key>
+	<false></false>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false></false>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true></true>
+	<key>IS_GCM_ENABLED</key>
+	<true></true>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:993194885332:ios:674eff990489fbfbe17b41</string>
+</dict>
+</plist>

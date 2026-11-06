@@ -12,7 +12,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-
 import { light, dark } from '../../theme/Color';
 import { handleEdges } from '../../utils/edges';
 
@@ -41,7 +40,7 @@ const Setting = () => {
     title: '',
     options: [],
     selected: '',
-    onSelect: () => {},
+    onSelect: () => { },
   });
 
   const openPicker = (title, options, selected, onSelect) => {
@@ -73,9 +72,10 @@ const Setting = () => {
           activeOpacity={0.7}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           style={styles.backButton}
-          onPress={() => navigation.goBack()}
+          onPress={() => navigation?.openDrawer?.()}
+
         >
-          <Ionicons name="chevron-back" size={26} color={colors.textPrimary} />
+          <Ionicons name="menu" size={26} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.textPrimary }]}>
           Settings
@@ -106,10 +106,10 @@ const Setting = () => {
                 selectedTheme === 'light'
                   ? { backgroundColor: colors.accentBg }
                   : {
-                      backgroundColor: colors.bgBase,
-                      borderColor: colors.borderColor,
-                      borderWidth: 1,
-                    },
+                    backgroundColor: colors.bgBase,
+                    borderColor: colors.borderColor,
+                    borderWidth: 1,
+                  },
               ]}
               onPress={() => setSelectedTheme('light')}
             >
@@ -137,10 +137,10 @@ const Setting = () => {
                 selectedTheme === 'dark'
                   ? { backgroundColor: colors.accentBg }
                   : {
-                      backgroundColor: colors.bgBase,
-                      borderColor: colors.borderColor,
-                      borderWidth: 1,
-                    },
+                    backgroundColor: colors.bgBase,
+                    borderColor: colors.borderColor,
+                    borderWidth: 1,
+                  },
               ]}
               onPress={() => setSelectedTheme('dark')}
             >

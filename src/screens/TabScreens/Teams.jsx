@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   Text,
@@ -7,218 +7,318 @@ import {
   TextInput,
   TouchableOpacity,
   Modal,
-  KeyboardAvoidingView,
   Platform,
   TouchableWithoutFeedback,
   Keyboard,
-  Pressable,
   ScrollView,
   useColorScheme,
+  useWindowDimensions,
+  Animated,
+  Image,
+  RefreshControl,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { light, dark } from '../../theme/Color';
 import { handleEdges } from '../../utils/edges';
+import { get_api, patch_api, post_api } from '../../utils/api';
+import { useSelector } from 'react-redux';
+import { maskEmail } from './components/CreateMatch';
+import { useNavigation } from '@react-navigation/native';
 
-const INITIAL_TEAMS = [
-  {
-    id: '1',
-    name: 'Sat-Chi Smashers',
-    code: 'SCS',
-    type: 'Doubles',
-    winRate: 81,
-    partner1: 'Satwiksairaj Rankireddy',
-    partner2: 'Chirag Shetty',
-    matches: 31,
-    wins: 25,
-  },
-  {
-    id: '2',
-    name: 'Chia-Soh Titans',
-    code: 'CST',
-    type: 'Doubles',
-    winRate: 75,
-    partner1: 'Aaron Chia',
-    partner2: 'Soh Wooi Yik',
-    matches: 24,
-    wins: 18,
-  },
-];
+const FILTERS = ['All', 'Double', 'Club'];
 
-const AVAILABLE_PLAYERS = [
-  'Satwiksairaj Rankireddy',
-  'Chirag Shetty',
-  'Aaron Chia',
-  'Soh Wooi Yik',
-  'Viktor Axelsen',
-  'Lakshya Sen',
-  'Tai Tzu-ying',
-  'Akane Yamaguchi',
-];
+// Reusable Skeleton Card mirroring renderTeamCard
+const TeamCardSkeleton = ({ colors, pulseAnim }) => {
+  const placeholderBg = colors.borderColor || '#333333';
 
-const FILTERS = ['All', 'Doubles', 'Club'];
-const TEAM_TYPE_OPTIONS = ['Doubles', 'Club'];
+  return (
+    <View style={[styles.teamCard, { backgroundColor: colors.bgSurface, borderColor: colors.borderColor }]}>
+      <View style={styles.cardHeader}>
+        <Animated.View style={[styles.skeletonLine, { width: '45%', height: 18, backgroundColor: placeholderBg, opacity: pulseAnim }]} />
+        <Animated.View style={[styles.skeletonLine, { width: 68, height: 22, borderRadius: 8, backgroundColor: placeholderBg, opacity: pulseAnim }]} />
+      </View>
+      <Animated.View style={[styles.skeletonLine, { width: '28%', height: 13, marginTop: 8, marginBottom: 14, backgroundColor: placeholderBg, opacity: pulseAnim }]} />
+      <Animated.View style={[styles.skeletonLine, { width: '70%', height: 15, marginBottom: 14, backgroundColor: placeholderBg, opacity: pulseAnim }]} />
+      <View style={styles.statsRow}>
+        <Animated.View style={[styles.skeletonLine, { width: 75, height: 13, backgroundColor: placeholderBg, opacity: pulseAnim }]} />
+        <Animated.View style={[styles.skeletonLine, { width: 65, height: 13, backgroundColor: placeholderBg, opacity: pulseAnim }]} />
+      </View>
+    </View>
+  );
+};
 
 const Teams = () => {
   const colorScheme = useColorScheme();
   const colors = colorScheme === 'dark' ? dark : light;
+  const { height: screenHeight, width: screenWidth } = useWindowDimensions();
+  const user = useSelector((state) => state.auth);
+  const navigation = useNavigation();
+  // Safely grab the user ID (handle both potential formats)
+  const my_id = user?._id || user?.id;
 
-  // Filter & List State
-  const [teams, setTeams] = useState(INITIAL_TEAMS);
+  const [teams, setTeams] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFilter, setSelectedFilter] = useState('All');
+  const [friends, setFriends] = useState([]);
 
-  // Modal & Form State
+  const [isLoadingTeams, setIsLoadingTeams] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isFetchingMore, setIsFetchingMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState(null);
+  const [hasNextPage, setHasNextPage] = useState(false);
+
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [teamName, setTeamName] = useState('');
   const [teamCode, setTeamCode] = useState('');
-  const [teamType, setTeamType] = useState('Doubles');
-  const [player1, setPlayer1] = useState('');
-  const [player2, setPlayer2] = useState('');
+  const [teamType, setTeamType] = useState('Double');
+  const [selectedPlayer2, setSelectedPlayer2] = useState(null);
 
-  // Dropdown Picker Modal State
-  const [activePicker, setActivePicker] = useState(null); // 'teamType' | 'player1' | 'player2' | null
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [isSelectingPlayer, setIsSelectingPlayer] = useState(false);
+  const [friendSearch, setFriendSearch] = useState('');
 
-  const filteredTeams = useMemo(() => {
-    return teams.filter((team) => {
-      const query = searchQuery.trim().toLowerCase();
-      const matchesSearch =
-        team.name.toLowerCase().includes(query) ||
-        team.code.toLowerCase().includes(query) ||
-        `${team.partner1} & ${team.partner2}`.toLowerCase().includes(query);
+  const slideAnim = useRef(new Animated.Value(0)).current;
+  const pulseAnim = useRef(new Animated.Value(0.35)).current;
 
-      const matchesFilter =
-        selectedFilter === 'All'
-          ? true
-          : team.type.toLowerCase() === selectedFilter.toLowerCase();
+  useEffect(() => {
+    let pulseLoop;
+    if (isLoadingTeams && !isRefreshing && !isFetchingMore) {
+      pulseLoop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, { toValue: 0.85, duration: 800, useNativeDriver: true }),
+          Animated.timing(pulseAnim, { toValue: 0.35, duration: 800, useNativeDriver: true }),
+        ])
+      );
+      pulseLoop.start();
+    } else {
+      pulseAnim.setValue(0.35);
+    }
+    return () => { if (pulseLoop) pulseLoop.stop(); };
+  }, [isLoadingTeams, isRefreshing, isFetchingMore]);
 
-      return matchesSearch && matchesFilter;
-    });
-  }, [teams, searchQuery, selectedFilter]);
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, (e) => setKeyboardHeight(e.endCoordinates.height));
+    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0));
+    return () => { showSub.remove(); hideSub.remove(); };
+  }, []);
+
+  const fetchTeams = async (reset = false) => {
+    if (reset) {
+      if (!isRefreshing) setIsLoadingTeams(true);
+    } else {
+      setIsFetchingMore(true);
+    }
+
+    try {
+      let url = `/teams?limit=10`;
+      const currentCursor = reset ? null : nextCursor;
+
+      if (currentCursor) url += `&cursor=${currentCursor}`;
+      if (selectedFilter !== 'All') url += `&teamType=${selectedFilter.toLowerCase()}`;
+      if (searchQuery.trim()) url += `&search=${encodeURIComponent(searchQuery.trim())}`;
+
+      const res = await get_api(url, user?.token);
+
+      if (res?.success) {
+        setTeams(reset ? (res.teams || []) : [...teams, ...(res.teams || [])]);
+        setNextCursor(res.nextCursor);
+        setHasNextPage(res.hasNextPage);
+      }
+    } catch (error) {
+      console.log('Error fetching teams:', error);
+    } finally {
+      setIsLoadingTeams(false);
+      setIsRefreshing(false);
+      setIsFetchingMore(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchTeams(true);
+  }, [selectedFilter]);
+
+  useEffect(() => {
+    get_connections();
+  }, []);
+
+  const get_connections = async () => {
+    try {
+      const res = await get_api('/connections', user?.token);
+      if (res?.success) setFriends(res?.friends || []);
+    } catch (error) {
+      console.log('Error fetching connections:', error);
+    }
+  };
+
+  const handleRefresh = () => {
+    setIsRefreshing(true);
+    fetchTeams(true);
+  };
+
+  const handleLoadMore = () => {
+    if (hasNextPage && !isFetchingMore && !isLoadingTeams) {
+      fetchTeams(false);
+    }
+  };
 
   const handleOpenModal = () => {
-    setTeamName('');
-    setTeamCode('');
-    setTeamType('Doubles');
-    setPlayer1('');
-    setPlayer2('');
-    setIsModalVisible(true);
+    setTeamName(''); setTeamCode(''); setTeamType('Double');
+    setSelectedPlayer2(null); setFriendSearch(''); setIsSelectingPlayer(false);
+    slideAnim.setValue(0); setIsModalVisible(true);
   };
 
-  const handleCreateTeam = () => {
-    if (!teamName.trim() || !player1 || !player2) return;
+  const handleCloseModal = () => {
+    Keyboard.dismiss(); setIsModalVisible(false);
+    slideAnim.setValue(0); setIsSelectingPlayer(false);
+  };
 
-    const generatedCode = teamCode.trim()
-      ? teamCode.trim().toUpperCase()
-      : teamName
-          .split(' ')
-          .map((w) => w[0])
-          .join('')
-          .slice(0, 3)
-          .toUpperCase();
+  const goToSelectPlayer = () => {
+    setIsSelectingPlayer(true);
+    Animated.timing(slideAnim, { toValue: 1, duration: 250, useNativeDriver: true }).start();
+  };
 
-    const newTeam = {
-      id: Date.now().toString(),
-      name: teamName.trim(),
-      code: generatedCode,
-      type: teamType,
-      winRate: 0,
-      partner1,
-      partner2,
-      matches: 0,
-      wins: 0,
+  const goToForm = () => {
+    Keyboard.dismiss(); setIsSelectingPlayer(false);
+    Animated.timing(slideAnim, { toValue: 0, duration: 250, useNativeDriver: true }).start(() => setFriendSearch(''));
+  };
+
+  const handleCreateTeam = async () => {
+    if (!teamName.trim() || !selectedPlayer2) return;
+
+    const generatedCode = teamCode.trim() ? teamCode.trim().toUpperCase() : teamName.split(' ').map((w) => w[0]).join('').slice(0, 3).toUpperCase();
+    const payload = { teamName: teamName.trim(), teamType: teamType.toLowerCase(), player2: selectedPlayer2.id, teamCode: generatedCode };
+
+    try {
+      const res = await post_api(`/teams`, payload, user?.token);
+      if (res?.success) {
+        fetchTeams(true);
+        handleCloseModal();
+      }
+    } catch (error) {
+      console.log('Error creating team:', error);
+    }
+  };
+
+  const respond = async (id, isAccept) => {
+    const body = {
+      action: isAccept ? 'ACCEPT' : 'DECLINE'
     };
-
-    setTeams((prev) => [newTeam, ...prev]);
-    setIsModalVisible(false);
+    try {
+      const res = await patch_api(`/teams/${id}/respond`, body, user?.token);
+      if (res.success) {
+        // Silently refresh the list in the background
+        fetchTeams(true);
+      } else {
+        Alert.alert('Error', res.message || 'Failed to respond to invitation.');
+      }
+    } catch (error) {
+      console.log('Error responding to team invite:', error);
+    }
   };
 
-  const getPickerOptions = () => {
-    if (activePicker === 'teamType') return TEAM_TYPE_OPTIONS;
-    if (activePicker === 'player1') {
-      return AVAILABLE_PLAYERS.filter((p) => p !== player2);
-    }
-    if (activePicker === 'player2') {
-      return AVAILABLE_PLAYERS.filter((p) => p !== player1);
-    }
-    return [];
-  };
+  const filteredFriends = useMemo(() => {
+    const query = friendSearch.trim().toLowerCase();
+    return friends.filter((item) => {
+      const player = item?.player;
+      if (!player) return false;
+      if (user?._id && player._id === user._id) return false;
+      if (user?.fullName && player.fullName === user.fullName) return false;
+      const name = (player.fullName || '').toLowerCase();
+      const email = (player.email || '').toLowerCase();
+      return name.includes(query) || email.includes(query);
+    });
+  }, [friends, friendSearch, user]);
 
-  const renderTeamCard = ({ item }) => (
-    <View
-      style={[
-        styles.teamCard,
-        { backgroundColor: colors.bgSurface, borderColor: colors.borderColor },
-      ]}
-    >
-      <View style={styles.cardHeader}>
-        <Text style={[styles.teamName, { color: colors.textPrimary }]}>
-          {item.name}
-        </Text>
-        <View style={[styles.winBadge, { backgroundColor: colors.bgBase }]}>
-          <Text style={[styles.winBadgeText, { color: colors.textSecondary }]}>
-            {item.winRate}% WIN
-          </Text>
+  const topSafePadding = Platform.OS === 'ios' ? 60 : 40;
+  const defaultSheetHeight = Math.min(screenHeight * 0.8, 620);
+  const availableScreenHeight = screenHeight - keyboardHeight - topSafePadding;
+  const currentSheetHeight = keyboardHeight > 0 ? Math.min(defaultSheetHeight, availableScreenHeight) : defaultSheetHeight;
+
+  const renderTeamCard = ({ item }) => {
+    const tName = item?.teamName || 'Unknown Team';
+    const tCode = item?.teamCode || 'N/A';
+    const tType = item?.teamType ? item.teamType.charAt(0).toUpperCase() + item.teamType.slice(1) : 'Unknown';
+    const p1Name = item?.player1?.fullName || 'Unknown';
+    const p2Name = item?.player2?.fullName || 'Unknown';
+
+    const isPendingForMe = item?.player2Status === 'pending' && item?.player2?._id === my_id;
+
+    return (
+      <TouchableOpacity
+        style={[styles.teamCard, { backgroundColor: colors.bgSurface, borderColor: colors.borderColor }]}
+        onPress={() => navigation.navigate('TeamProfile', { item: item })}
+      >
+        <View style={styles.cardHeader}>
+          <Text style={[styles.teamName, { color: colors.textPrimary }]}>{tName}</Text>
         </View>
+        <Text style={[styles.subtitle, { color: colors.textTertiary }]}>{tCode} • {tType}</Text>
+        <Text style={styles.partnersRow}>
+          <Text style={[styles.partnersLabel, { color: colors.textPrimary }]}>Partners: </Text>
+          <Text style={[styles.partnersNames, { color: colors.textSecondary }]}>{p1Name} & {p2Name}</Text>
+        </Text>
+
+        {/* INVITATION ACTION ROW */}
+        {isPendingForMe && (
+          <View style={[styles.inviteActionRow, { borderTopColor: colors.borderColor }]}>
+            <TouchableOpacity
+              activeOpacity={0.7}
+              style={[
+                styles.inviteButton,
+                styles.declineButton,
+                { borderColor: colors.borderColor, backgroundColor: colors.bgSurface }
+              ]}
+              onPress={() => respond(item._id, false)}
+            >
+              <Text style={[styles.inviteButtonText, { color: colors.textPrimary }]}>Decline</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              activeOpacity={0.8}
+              style={[
+                styles.inviteButton,
+                styles.acceptButton,
+                { backgroundColor: '#FFFFFF', borderColor: '#E4E4E7', borderWidth: 1 }
+              ]}
+              onPress={() => respond(item._id, true)}
+            >
+              <Text style={[styles.inviteButtonText, { color: '#000000' }]}>Join Team</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </TouchableOpacity>
+    );
+  };
+
+  const renderFooter = () => {
+    if (!isFetchingMore) return null;
+    return (
+      <View style={{ paddingVertical: 20, alignItems: 'center' }}>
+        <ActivityIndicator size="small" color={colors.textPrimary} />
       </View>
-
-      <Text style={[styles.subtitle, { color: colors.textTertiary }]}>
-        {item.code} - {item.type}
-      </Text>
-
-      <Text style={styles.partnersRow}>
-        <Text style={[styles.partnersLabel, { color: colors.textPrimary }]}>
-          Partners:{' '}
-        </Text>
-        <Text style={[styles.partnersNames, { color: colors.textSecondary }]}>
-          {item.partner1} & {item.partner2}
-        </Text>
-      </Text>
-
-      <View style={styles.statsRow}>
-        <Text style={[styles.statsText, { color: colors.textSecondary }]}>
-          {item.matches} Matches
-        </Text>
-        <Text style={[styles.statsText, { color: colors.textSecondary }]}>
-          {item.wins} Wins
-        </Text>
-      </View>
-    </View>
-  );
+    );
+  };
 
   return (
-    <SafeAreaView
-      style={[styles.safeArea, { backgroundColor: colors.bgBase }]}
-      edges={handleEdges()}
-    >
-      {/* Top Header */}
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.bgBase }]} edges={handleEdges()}>
       <View style={[styles.header, { borderBottomColor: colors.borderColor }]}>
-        <Text style={[styles.headerTitle, { color: colors.textPrimary }]}>
-          Teams
-        </Text>
-        <TouchableOpacity
-          activeOpacity={0.7}
-          onPress={handleOpenModal}
-          style={[
-            styles.headerAddButton,
-            { borderColor: colors.borderColor, backgroundColor: colors.bgSurface },
-          ]}
-        >
+        <Text style={[styles.headerTitle, { color: colors.textPrimary }]}>Teams</Text>
+        <TouchableOpacity activeOpacity={0.7} onPress={handleOpenModal} style={[styles.headerAddButton, { borderColor: colors.borderColor, backgroundColor: colors.bgSurface }]}>
           <Ionicons name="add" size={20} color={colors.textPrimary} />
         </TouchableOpacity>
       </View>
 
-      {/* Search Input & Filter Pills */}
       <View style={styles.searchFilterContainer}>
-        <View
-          style={[
-            styles.searchBar,
-            { backgroundColor: colors.bgSurface, borderColor: colors.borderColor },
-          ]}
-        >
+        <View style={[styles.searchBar, { backgroundColor: colors.bgSurface, borderColor: colors.borderColor }]}>
           <TextInput
             value={searchQuery}
             onChangeText={setSearchQuery}
+            onSubmitEditing={() => fetchTeams(true)}
+            returnKeyType="search"
             placeholder="Search team name or code..."
             placeholderTextColor={colors.textTertiary}
             style={[styles.searchInput, { color: colors.textPrimary }]}
@@ -235,350 +335,153 @@ const Teams = () => {
                 onPress={() => setSelectedFilter(filter)}
                 style={[
                   styles.filterPill,
-                  {
-                    backgroundColor: isActive ? colors.accentBg : colors.bgSurface,
-                    borderColor: isActive ? colors.accentBg : colors.borderColor,
-                  },
+                  { backgroundColor: isActive ? colors.accentBg : colors.bgSurface, borderColor: isActive ? colors.accentBg : colors.borderColor },
                 ]}
               >
-                <Text
-                  style={[
-                    styles.filterPillText,
-                    {
-                      color: isActive ? colors.accentText : colors.textPrimary,
-                    },
-                  ]}
-                >
-                  {filter}
-                </Text>
+                <Text style={[styles.filterPillText, { color: isActive ? colors.accentText : colors.textPrimary }]}>{filter}</Text>
               </TouchableOpacity>
             );
           })}
         </View>
       </View>
 
-      {/* Teams List */}
-      <FlatList
-        data={filteredTeams}
-        keyExtractor={(item) => item.id}
-        renderItem={renderTeamCard}
-        contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={false}
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Text style={[styles.emptyText, { color: colors.textTertiary }]}>
-              No teams found
-            </Text>
-          </View>
-        }
-      />
+      {isLoadingTeams && !isRefreshing ? (
+        <ScrollView contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false}>
+          {[1, 2, 3, 4].map((id) => <TeamCardSkeleton key={id} colors={colors} pulseAnim={pulseAnim} />)}
+        </ScrollView>
+      ) : (
+        <FlatList
+          data={teams}
+          keyExtractor={(item) => item?._id || Math.random().toString()}
+          renderItem={renderTeamCard}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} tintColor={colors.textPrimary} />}
+          onEndReached={handleLoadMore}
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={renderFooter}
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Text style={[styles.emptyText, { color: colors.textTertiary }]}>No teams found</Text>
+            </View>
+          }
+        />
+      )}
 
-      {/* Create Doubles Pair / Team Bottom Sheet Modal */}
-      <Modal
-        visible={isModalVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setIsModalVisible(false)}
-      >
-        {/* OUTER CATCH: Closes the modal if user clicks the dark empty background */}
-        <TouchableWithoutFeedback onPress={() => setIsModalVisible(false)}>
-          <View style={[styles.modalOverlay, { backgroundColor: colors.overlayBg }]}>
-            
-            <KeyboardAvoidingView
-              behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-              style={styles.keyboardAvoid}
-            >
-              {/* INNER CATCH: Dismisses keyboard and STOPS touch from closing the modal */}
-              <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-                <View
-                  style={[
-                    styles.bottomSheet,
-                    { backgroundColor: colors.bgSurface },
-                  ]}
-                >
-                  {/* Drag Handle Indicator */}
-                  <View style={styles.dragHandle} />
+      {/* CREATE TEAM MODAL */}
+      <Modal visible={isModalVisible} transparent animationType="slide" statusBarTranslucent onRequestClose={() => isSelectingPlayer ? goToForm() : handleCloseModal()}>
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+          <View style={[styles.modalOverlay, { backgroundColor: colors.overlayBg, paddingBottom: keyboardHeight }]}>
+            <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+              <View style={[styles.bottomSheet, { backgroundColor: colors.bgSurface, height: currentSheetHeight }]}>
+                <View style={styles.dragHandle} />
+                <Animated.View style={[styles.sliderContainer, { width: screenWidth * 2, transform: [{ translateX: slideAnim.interpolate({ inputRange: [0, 1], outputRange: [0, -screenWidth] }) }] }]}>
 
-                  {/* Modal Title */}
-                  <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>
-                    Create Doubles Pair / Team
-                  </Text>
+                  {/* PAGE 1: FORM */}
+                  <View style={[styles.pageWrapper, { width: screenWidth }]}>
+                    <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Create Team</Text>
+                    <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.formScrollContent}>
+                      <View style={styles.formGroup}>
+                        <Text style={[styles.inputLabel, { color: colors.textPrimary }]}>TEAM TYPE</Text>
+                        <View style={[styles.segmentedControl, { borderColor: colors.borderColor, backgroundColor: colors.bgBase }]}>
+                          {['Double', 'Club'].map((type) => {
+                            const isActive = teamType === type;
+                            return (
+                              <TouchableOpacity key={type} activeOpacity={0.8} onPress={() => setTeamType(type)} style={[styles.segmentButton, isActive && { backgroundColor: colors.bgSurface, elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.15, shadowRadius: 2 }]}>
+                                <Text style={[styles.segmentText, { color: isActive ? colors.textPrimary : colors.textTertiary }]}>{type}</Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      </View>
+                      <View style={styles.formGroup}>
+                        <Text style={[styles.inputLabel, { color: colors.textPrimary }]}>TEAM NAME *</Text>
+                        <TextInput value={teamName} onChangeText={setTeamName} placeholder="e.g. Sat-Chi Smashers" placeholderTextColor={colors.textTertiary} style={[styles.textInput, { backgroundColor: colors.bgSurface, borderColor: colors.borderColor, color: colors.textPrimary }]} />
+                      </View>
+                      <View style={styles.formGroup}>
+                        <Text style={[styles.inputLabel, { color: colors.textPrimary }]}>TEAM CODE (3-4 LETTERS)</Text>
+                        <TextInput value={teamCode} onChangeText={setTeamCode} placeholder="SCS" placeholderTextColor={colors.textTertiary} maxLength={4} autoCapitalize="characters" style={[styles.textInput, { backgroundColor: colors.bgSurface, borderColor: colors.borderColor, color: colors.textPrimary }]} />
+                      </View>
+                      <View style={styles.formGroup}>
+                        <Text style={[styles.inputLabel, { color: colors.textPrimary }]}>PLAYER 1 *</Text>
+                        <View style={[styles.dropdownSelector, { backgroundColor: colors.bgBase, borderColor: colors.borderColor }]}>
+                          <Text style={[styles.dropdownSelectedText, { color: colors.textPrimary }]}>{user?.fullName || 'Myself'}</Text>
+                        </View>
+                      </View>
+                      <View style={styles.formGroup}>
+                        <Text style={[styles.inputLabel, { color: colors.textPrimary }]}>PLAYER 2 *</Text>
+                        <TouchableOpacity activeOpacity={0.7} onPress={goToSelectPlayer} style={[styles.dropdownSelector, { backgroundColor: colors.bgSurface, borderColor: colors.borderColor }]}>
+                          <Text style={[styles.dropdownSelectedText, { color: selectedPlayer2 ? colors.textPrimary : colors.textTertiary }]}>{selectedPlayer2 ? selectedPlayer2.name : 'Select Second Partner'}</Text>
+                          <Ionicons name="search-outline" size={18} color={colors.textTertiary} />
+                        </TouchableOpacity>
+                      </View>
+                      <View style={styles.modalActionRow}>
+                        <TouchableOpacity activeOpacity={0.7} onPress={handleCloseModal} style={[styles.actionButton, styles.cancelButton, { borderColor: colors.borderColor, backgroundColor: colors.bgSurface }]}>
+                          <Text style={[styles.actionButtonText, { color: colors.textPrimary }]}>Cancel</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity activeOpacity={0.85} onPress={handleCreateTeam} disabled={!teamName.trim() || !selectedPlayer2} style={[styles.actionButton, { backgroundColor: colors.accentBg, opacity: teamName.trim() && selectedPlayer2 ? 1 : 0.6 }]}>
+                          <Text style={[styles.actionButtonText, { color: colors.accentText }]}>Create Team</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </ScrollView>
+                  </View>
 
-                  <ScrollView
-                    showsVerticalScrollIndicator={false}
-                    keyboardShouldPersistTaps="handled"
-                  >
-                    {/* Team Name */}
-                    <View style={styles.formGroup}>
-                      <Text style={[styles.inputLabel, { color: colors.textPrimary }]}>
-                        TEAM NAME *
-                      </Text>
-                      <TextInput
-                        value={teamName}
-                        onChangeText={setTeamName}
-                        placeholder="e.g. Sat-Chi Smashers"
-                        placeholderTextColor={colors.textTertiary}
-                        style={[
-                          styles.textInput,
-                          {
-                            backgroundColor: colors.bgSurface,
-                            borderColor: colors.borderColor,
-                            color: colors.textPrimary,
-                          },
-                        ]}
-                      />
-                    </View>
-
-                    {/* Team Code (3-4 Letters) */}
-                    <View style={styles.formGroup}>
-                      <Text style={[styles.inputLabel, { color: colors.textPrimary }]}>
-                        TEAM CODE (3-4 LETTERS)
-                      </Text>
-                      <TextInput
-                        value={teamCode}
-                        onChangeText={setTeamCode}
-                        placeholder="SCS"
-                        placeholderTextColor={colors.textTertiary}
-                        maxLength={4}
-                        autoCapitalize="characters"
-                        style={[
-                          styles.textInput,
-                          {
-                            backgroundColor: colors.bgSurface,
-                            borderColor: colors.borderColor,
-                            color: colors.textPrimary,
-                          },
-                        ]}
-                      />
-                    </View>
-
-                    {/* Team Type Dropdown */}
-                    <View style={styles.formGroup}>
-                      <Text style={[styles.inputLabel, { color: colors.textPrimary }]}>
-                        TEAM TYPE
-                      </Text>
-                      <TouchableOpacity
-                        activeOpacity={0.7}
-                        onPress={() => setActivePicker('teamType')}
-                        style={[
-                          styles.dropdownSelector,
-                          {
-                            backgroundColor: colors.bgSurface,
-                            borderColor: colors.borderColor,
-                          },
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.dropdownSelectedText,
-                            { color: colors.textPrimary },
-                          ]}
-                        >
-                          {teamType}
-                        </Text>
-                        <Ionicons
-                          name="chevron-down"
-                          size={18}
-                          color={colors.textTertiary}
-                        />
+                  {/* PAGE 2: SELECT PARTNER */}
+                  <View style={[styles.pageWrapper, { width: screenWidth }]}>
+                    <View style={styles.inlineSearchHeader}>
+                      <TouchableOpacity onPress={goToForm} style={styles.backButton}>
+                        <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
                       </TouchableOpacity>
+                      <Text style={[styles.modalTitle, { color: colors.textPrimary, marginBottom: 0 }]}>Select Partner</Text>
                     </View>
-
-                    {/* Player 1 Dropdown */}
-                    <View style={styles.formGroup}>
-                      <Text style={[styles.inputLabel, { color: colors.textPrimary }]}>
-                        PLAYER 1 *
-                      </Text>
-                      <TouchableOpacity
-                        activeOpacity={0.7}
-                        onPress={() => setActivePicker('player1')}
-                        style={[
-                          styles.dropdownSelector,
-                          {
-                            backgroundColor: colors.bgSurface,
-                            borderColor: colors.borderColor,
-                          },
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.dropdownSelectedText,
-                            {
-                              color: player1
-                                ? colors.textPrimary
-                                : colors.textTertiary,
-                            },
-                          ]}
-                        >
-                          {player1 || 'Select First Partner'}
-                        </Text>
-                        <Ionicons
-                          name="chevron-down"
-                          size={18}
-                          color={colors.textTertiary}
-                        />
-                      </TouchableOpacity>
+                    <View style={[styles.friendSearchBar, { backgroundColor: colors.bgBase, borderColor: colors.borderColor }]}>
+                      <Ionicons name="search" size={18} color={colors.textTertiary} style={{ marginRight: 8 }} />
+                      <TextInput value={friendSearch} onChangeText={setFriendSearch} placeholder="Search by name or email..." placeholderTextColor={colors.textTertiary} style={[styles.friendSearchInput, { color: colors.textPrimary }]} />
+                      {friendSearch.length > 0 && (
+                        <TouchableOpacity onPress={() => setFriendSearch('')}>
+                          <Ionicons name="close-circle" size={18} color={colors.textTertiary} />
+                        </TouchableOpacity>
+                      )}
                     </View>
-
-                    {/* Player 2 Dropdown */}
-                    <View style={styles.formGroup}>
-                      <Text style={[styles.inputLabel, { color: colors.textPrimary }]}>
-                        PLAYER 2 *
-                      </Text>
-                      <TouchableOpacity
-                        activeOpacity={0.7}
-                        onPress={() => setActivePicker('player2')}
-                        style={[
-                          styles.dropdownSelector,
-                          {
-                            backgroundColor: colors.bgSurface,
-                            borderColor: colors.borderColor,
-                          },
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.dropdownSelectedText,
-                            {
-                              color: player2
-                                ? colors.textPrimary
-                                : colors.textTertiary,
-                            },
-                          ]}
-                        >
-                          {player2 || 'Select Second Partner'}
-                        </Text>
-                        <Ionicons
-                          name="chevron-down"
-                          size={18}
-                          color={colors.textTertiary}
-                        />
-                      </TouchableOpacity>
-                    </View>
-
-                    {/* Actions Button Group */}
-                    <View style={styles.modalActionRow}>
-                      <TouchableOpacity
-                        activeOpacity={0.7}
-                        onPress={() => setIsModalVisible(false)}
-                        style={[
-                          styles.actionButton,
-                          styles.cancelButton,
-                          {
-                            borderColor: colors.borderColor,
-                            backgroundColor: colors.bgSurface,
-                          },
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.actionButtonText,
-                            { color: colors.textPrimary },
-                          ]}
-                        >
-                          Cancel
-                        </Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        activeOpacity={0.85}
-                        onPress={handleCreateTeam}
-                        style={[
-                          styles.actionButton,
-                          {
-                            backgroundColor: colors.accentBg,
-                            opacity:
-                              teamName.trim() && player1 && player2 ? 1 : 0.6,
-                          },
-                        ]}
-                        disabled={!teamName.trim() || !player1 || !player2}
-                      >
-                        <Text
-                          style={[
-                            styles.actionButtonText,
-                            { color: colors.accentText },
-                          ]}
-                        >
-                          Create Team
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                  </ScrollView>
-                </View>
-              </TouchableWithoutFeedback>
-            </KeyboardAvoidingView>
+                    <FlatList
+                      data={filteredFriends}
+                      keyExtractor={(item, index) => item?.player?._id || item?.connectionId || index.toString()}
+                      keyboardShouldPersistTaps="handled"
+                      keyboardDismissMode="on-drag"
+                      showsVerticalScrollIndicator={false}
+                      contentContainerStyle={styles.friendListContent}
+                      ListEmptyComponent={<View style={styles.noFriendsContainer}><Text style={[styles.noFriendsText, { color: colors.textTertiary }]}>No connections found</Text></View>}
+                      renderItem={({ item, index }) => {
+                        const player = item?.player;
+                        const isSelected = selectedPlayer2?.id === player?._id;
+                        return (
+                          <TouchableOpacity
+                            activeOpacity={0.7}
+                            onPress={() => { setSelectedPlayer2({ id: player._id, name: player.fullName, email: player.email }); goToForm(); }}
+                            style={[styles.friendRow, index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.borderColor }]}
+                          >
+                            <View style={styles.friendInfoLeft}>
+                              {player?.profile_image ? (
+                                <Image source={{ uri: player.profile_image }} style={styles.avatar} />
+                              ) : (
+                                <View style={[styles.avatarPlaceholder, { backgroundColor: colors.bgBase }]}><Text style={[styles.avatarInitial, { color: colors.textPrimary }]}>{(player?.fullName || '?')[0].toUpperCase()}</Text></View>
+                              )}
+                              <View style={styles.friendTextCol}>
+                                <Text style={[styles.friendName, { color: colors.textPrimary }]}>{player?.fullName}</Text>
+                                <Text style={[styles.friendEmail, { color: colors.textTertiary }]}>{maskEmail(player?.email)}</Text>
+                              </View>
+                            </View>
+                            {isSelected && <Ionicons name="checkmark-circle" size={22} color={colors.accentText || colors.textPrimary} />}
+                          </TouchableOpacity>
+                        );
+                      }}
+                    />
+                  </View>
+                </Animated.View>
+              </View>
+            </TouchableWithoutFeedback>
           </View>
         </TouchableWithoutFeedback>
-      </Modal>
-
-      {/* Options Picker Modal */}
-      <Modal
-        visible={activePicker !== null}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setActivePicker(null)}
-      >
-        <TouchableOpacity
-          activeOpacity={1}
-          onPress={() => setActivePicker(null)}
-          style={[styles.pickerOverlay, { backgroundColor: colors.overlayBg }]}
-        >
-          {/* Blocks touch from bubbling up and closing modal if tapping empty space inside the picker menu */}
-          <TouchableWithoutFeedback>
-            <View
-              style={[
-                styles.pickerContainer,
-                { backgroundColor: colors.bgSurface, borderColor: colors.borderColor },
-              ]}
-            >
-              <ScrollView style={{ maxHeight: 340 }}>
-                {getPickerOptions().map((option, idx) => {
-                  const isSelected =
-                    (activePicker === 'teamType' && teamType === option) ||
-                    (activePicker === 'player1' && player1 === option) ||
-                    (activePicker === 'player2' && player2 === option);
-
-                  return (
-                    <TouchableOpacity
-                      key={option}
-                      activeOpacity={0.7}
-                      onPress={() => {
-                        if (activePicker === 'teamType') setTeamType(option);
-                        if (activePicker === 'player1') setPlayer1(option);
-                        if (activePicker === 'player2') setPlayer2(option);
-                        setActivePicker(null);
-                      }}
-                      style={[
-                        styles.pickerOption,
-                        idx > 0 && {
-                          borderTopWidth: StyleSheet.hairlineWidth,
-                          borderTopColor: colors.borderColor,
-                        },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.pickerOptionText,
-                          { color: colors.textPrimary },
-                          isSelected && { fontWeight: '700' },
-                        ]}
-                      >
-                        {option}
-                      </Text>
-                      {isSelected && (
-                        <Ionicons
-                          name="checkmark"
-                          size={18}
-                          color={colors.textPrimary}
-                        />
-                      )}
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-            </View>
-          </TouchableWithoutFeedback>
-        </TouchableOpacity>
       </Modal>
     </SafeAreaView>
   );
@@ -587,238 +490,68 @@ const Teams = () => {
 export default Teams;
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  headerTitle: {
-    fontSize: 22,
-    fontWeight: '800',
-    letterSpacing: -0.4,
-  },
-  headerAddButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  searchFilterContainer: {
-    paddingHorizontal: 16,
-    paddingBottom: 8,
-  },
-  searchBar: {
-    height: 46,
-    borderRadius: 14,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    justifyContent: 'center',
-  },
-  searchInput: {
-    fontSize: 15,
-    fontWeight: '400',
-    padding: 0,
-  },
-  filterRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 12,
-  },
-  filterPill: {
-    paddingHorizontal: 18,
-    paddingVertical: 7,
-    borderRadius: 20,
-    borderWidth: 1,
-  },
-  filterPillText: {
-    fontSize: 13.5,
-    fontWeight: '600',
-  },
-  listContent: {
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 90,
-  },
-  teamCard: {
-    borderWidth: 1,
-    borderRadius: 18,
-    padding: 16,
-    marginBottom: 12,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  teamName: {
-    fontSize: 16.5,
-    fontWeight: '800',
-    letterSpacing: -0.3,
-  },
-  winBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  winBadgeText: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-  },
-  subtitle: {
-    fontSize: 13,
-    fontWeight: '500',
-    marginTop: 2,
-    marginBottom: 12,
-  },
-  partnersRow: {
-    fontSize: 13.5,
-    marginBottom: 12,
-  },
-  partnersLabel: {
-    fontWeight: '700',
-  },
-  partnersNames: {
-    fontWeight: '400',
-  },
-  statsRow: {
-    flexDirection: 'row',
-    gap: 16,
-  },
-  statsText: {
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  emptyContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingTop: 60,
-  },
-  emptyText: {
-    fontSize: 14,
-  },
-  fab: {
-    position: 'absolute',
-    bottom: 24,
-    right: 18,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
-    elevation: 6,
-  },
-  modalOverlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  keyboardAvoid: {
-    justifyContent: 'flex-end',
-  },
-  bottomSheet: {
-    borderTopLeftRadius: 26,
-    borderTopRightRadius: 26,
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    maxHeight: '90%',
-    paddingBottom: Platform.OS === 'ios' ? 36 : 24,
-  },
-  dragHandle: {
-    width: 42,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#D4D4D8',
-    alignSelf: 'center',
-    marginBottom: 16,
-  },
-  modalTitle: {
-    fontSize: 21,
-    fontWeight: '800',
-    letterSpacing: -0.4,
-    marginBottom: 18,
-  },
-  formGroup: {
-    marginBottom: 14,
-  },
-  inputLabel: {
-    fontSize: 11.5,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-    marginBottom: 6,
-  },
-  textInput: {
-    height: 48,
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    fontSize: 14.5,
-  },
-  dropdownSelector: {
-    height: 48,
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  dropdownSelectedText: {
-    fontSize: 14.5,
-    fontWeight: '500',
-  },
-  modalActionRow: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 10,
-    marginBottom: 8,
-  },
-  actionButton: {
-    flex: 1,
-    height: 48,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cancelButton: {
-    borderWidth: 1,
-  },
-  actionButtonText: {
-    fontSize: 14.5,
-    fontWeight: '700',
-  },
-  pickerOverlay: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-  },
-  pickerContainer: {
-    width: '100%',
-    maxWidth: 320,
-    borderRadius: 16,
-    borderWidth: 1,
-    overflow: 'hidden',
-  },
-  pickerOption: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 18,
-  },
-  pickerOptionText: {
-    fontSize: 15,
-  },
+  safeArea: { flex: 1 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth },
+  headerTitle: { fontSize: 22, fontWeight: '800', letterSpacing: -0.4 },
+  headerAddButton: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  searchFilterContainer: { paddingHorizontal: 16, paddingBottom: 8 },
+  searchBar: { height: 46, borderRadius: 14, borderWidth: 1, paddingHorizontal: 14, justifyContent: 'center' },
+  searchInput: { fontSize: 15, fontWeight: '400', padding: 0 },
+  filterRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
+  filterPill: { paddingHorizontal: 18, paddingVertical: 7, borderRadius: 20, borderWidth: 1 },
+  filterPillText: { fontSize: 13.5, fontWeight: '600' },
+  listContent: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 90 },
+  teamCard: { borderWidth: 1, borderRadius: 18, paddingHorizontal: 16,paddingVertical : 10, marginBottom: 12 },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  teamName: { fontSize: 16.5, fontWeight: '800', letterSpacing: -0.3 },
+  subtitle: { fontSize: 13, fontWeight: '500', marginTop: 2, marginBottom: 4 },
+  partnersRow: { fontSize: 13.5, marginBottom: 12 },
+  partnersLabel: { fontWeight: '700' },
+  partnersNames: { fontWeight: '400' },
+  statsRow: { flexDirection: 'row', gap: 16 },
+
+  /* Invitation Action Row Styles */
+  inviteActionRow: { flexDirection: 'row', gap: 12, marginTop: 16, paddingTop: 16, borderTopWidth: StyleSheet.hairlineWidth },
+  inviteButton: { flex: 1, height: 38, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  declineButton: { borderWidth: 1 },
+  acceptButton: { borderWidth: 0 },
+  inviteButtonText: { fontSize: 13.5, fontWeight: '700' },
+
+  emptyContainer: { alignItems: 'center', justifyContent: 'center', paddingTop: 60 },
+  emptyText: { fontSize: 14 },
+  skeletonLine: { borderRadius: 6 },
+  modalOverlay: { flex: 1, justifyContent: 'flex-end' },
+  bottomSheet: { borderTopLeftRadius: 26, borderTopRightRadius: 26, paddingTop: 12, width: '100%', overflow: 'hidden' },
+  dragHandle: { width: 42, height: 4, borderRadius: 2, backgroundColor: '#D4D4D8', alignSelf: 'center', marginBottom: 14 },
+  sliderContainer: { flex: 1, flexDirection: 'row' },
+  pageWrapper: { flex: 1, paddingHorizontal: 20 },
+  modalTitle: { fontSize: 20, fontWeight: '800', letterSpacing: -0.4, marginBottom: 16 },
+  formGroup: { marginBottom: 14 },
+  formScrollContent: { paddingBottom: 28 },
+  inputLabel: { fontSize: 11.5, fontWeight: '700', letterSpacing: 0.5, marginBottom: 6 },
+  textInput: { height: 48, borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, fontSize: 14.5 },
+  dropdownSelector: { height: 48, borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  dropdownSelectedText: { fontSize: 14.5, fontWeight: '500' },
+  segmentedControl: { flexDirection: 'row', height: 44, borderRadius: 12, borderWidth: 1, padding: 3 },
+  segmentButton: { flex: 1, borderRadius: 9, justifyContent: 'center', alignItems: 'center' },
+  segmentText: { fontSize: 14, fontWeight: '600' },
+  inlineSearchHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
+  backButton: { marginRight: 12, padding: 4 },
+  friendSearchBar: { flexDirection: 'row', alignItems: 'center', height: 46, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, marginBottom: 10 },
+  friendSearchInput: { flex: 1, fontSize: 14.5, padding: 0 },
+  friendListContent: { flexGrow: 1, paddingBottom: 28 },
+  friendRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 4 },
+  friendInfoLeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
+  avatar: { width: 38, height: 38, borderRadius: 19 },
+  avatarPlaceholder: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
+  avatarInitial: { fontSize: 15, fontWeight: '700' },
+  friendTextCol: { flex: 1 },
+  friendName: { fontSize: 14.5, fontWeight: '600' },
+  friendEmail: { fontSize: 12, marginTop: 1 },
+  noFriendsContainer: { alignItems: 'center', justifyContent: 'center', paddingTop: 40 },
+  noFriendsText: { fontSize: 14 },
+  modalActionRow: { flexDirection: 'row', gap: 12, marginTop: 10, marginBottom: 8 },
+  actionButton: { flex: 1, height: 48, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  cancelButton: { borderWidth: 1 },
+  actionButtonText: { fontSize: 14.5, fontWeight: '700' },
 });

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import {
   StyleSheet,
   Text,
@@ -7,206 +7,255 @@ import {
   TextInput,
   TouchableOpacity,
   Modal,
-  KeyboardAvoidingView,
-  Platform,
   TouchableWithoutFeedback,
-  Keyboard,
   useColorScheme,
+  Animated,
+  ActivityIndicator,
+  Image,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { light, dark } from '../../theme/Color';
 import { handleEdges } from '../../utils/edges';
+import { getInitials } from './functions/Avatar';
+import { get_api } from '../../utils/api';
+import { useSelector } from 'react-redux';
+import { useNavigation } from '@react-navigation/native';
 
-const INITIAL_PLAYERS = [
-  {
-    id: '1',
-    name: 'Viktor Axelsen',
-    initials: 'VA',
-    category: 'SINGLES',
-    matches: 34,
-    wins: 30,
-    winRate: 88,
-  },
-  {
-    id: '2',
-    name: 'Lakshya Sen',
-    initials: 'LS',
-    category: 'BOTH',
-    matches: 28,
-    wins: 22,
-    winRate: 79,
-  },
-  {
-    id: '3',
-    name: 'Tai Tzu-ying',
-    initials: 'TT',
-    category: 'SINGLES',
-    matches: 29,
-    wins: 24,
-    winRate: 83,
-  },
-  {
-    id: '4',
-    name: 'Akane Yamaguchi',
-    initials: 'AY',
-    category: 'SINGLES',
-    matches: 26,
-    wins: 20,
-    winRate: 77,
-  },
-  {
-    id: '5',
-    name: 'Satwiksairaj Rankireddy',
-    initials: 'SR',
-    category: 'DOUBLES',
-    matches: 31,
-    wins: 25,
-    winRate: 81,
-  },
-  {
-    id: '6',
-    name: 'Chirag Shetty',
-    initials: 'CS',
-    category: 'DOUBLES',
-    matches: 31,
-    wins: 25,
-    winRate: 81,
-  },
-  {
-    id: '7',
-    name: 'An Se-young',
-    initials: 'AS',
-    category: 'SINGLES',
-    matches: 35,
-    wins: 32,
-    winRate: 91,
-  },
-  {
-    id: '8',
-    name: 'Carolina Marin',
-    initials: 'CM',
-    category: 'SINGLES',
-    matches: 30,
-    wins: 24,
-    winRate: 80,
-  },
-];
-
-const FILTERS = ['All', 'Singles', 'Doubles', 'Both'];
+const FILTERS = ['All', 'Single', 'Double'];
 const GENDER_OPTIONS = ['Male', 'Female', 'Other'];
-const CATEGORY_OPTIONS = ['Singles', 'Doubles', 'Both'];
+const CATEGORY_OPTIONS = ['Single', 'Double', 'Both'];
+const PAGE_LIMIT = 30;
+
+// Reusable Skeleton Card with Pulsing Animation
+const SkeletonCard = ({ colors, pulseOpacity }) => (
+  <Animated.View
+    style={[
+      styles.playerCard,
+      {
+        backgroundColor: colors.bgSurface,
+        borderColor: colors.borderColor,
+        opacity: pulseOpacity,
+      },
+    ]}
+  >
+    <View style={styles.cardTopRow}>
+      <View style={styles.playerInfoGroup}>
+        <View style={[styles.avatarCircle, { backgroundColor: colors.borderColor }]} />
+        <View
+          style={{
+            width: 130,
+            height: 16,
+            borderRadius: 6,
+            backgroundColor: colors.borderColor,
+          }}
+        />
+      </View>
+      <View
+        style={{
+          width: 65,
+          height: 22,
+          borderRadius: 8,
+          backgroundColor: colors.borderColor,
+        }}
+      />
+    </View>
+
+    <View style={styles.cardDivider} />
+
+    <View style={styles.statsRow}>
+      <View
+        style={{
+          width: '65%',
+          height: 14,
+          borderRadius: 4,
+          backgroundColor: colors.borderColor,
+        }}
+      />
+    </View>
+  </Animated.View>
+);
 
 const Players = () => {
   const colorScheme = useColorScheme();
   const colors = colorScheme === 'dark' ? dark : light;
+  const user = useSelector((state) => state.auth);
+  const navigation = useNavigation();
 
-  // List & Filter States
-  const [players, setPlayers] = useState(INITIAL_PLAYERS);
+  // Data & Pagination States
+  const [players, setPlayers] = useState([]);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+
+  // Loading States
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Filter & Search States
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFilter, setSelectedFilter] = useState('All');
-
-  // Modal & Form States
-  const [isModalVisible, setIsModalVisible] = useState(false);
-  const [fullName, setFullName] = useState('');
   const [gender, setGender] = useState('Male');
   const [playingCategory, setPlayingCategory] = useState('Singles');
-  const [phoneNumber, setPhoneNumber] = useState('');
-
-  // Dropdown Picker Modal States
   const [pickerType, setPickerType] = useState(null);
 
+  // Pulse animation for skeleton
+  const pulseAnim = useRef(new Animated.Value(0.35)).current;
+
+  useEffect(() => {
+    let pulse;
+    if (initialLoading) {
+      pulse = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 0.85,
+            duration: 750,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 0.35,
+            duration: 750,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      pulse.start();
+    }
+    return () => {
+      if (pulse) pulse.stop();
+    };
+  }, [initialLoading, pulseAnim]);
+
+  // Fetch Players from Backend
+  const fetchPlayers = useCallback(
+    async (pageToFetch = 1, isRefresh = false) => {
+      try {
+        if (pageToFetch === 1 && !isRefresh) {
+          setInitialLoading(true);
+        }
+
+        const res = await get_api(
+          `/users/allPlayer?page=${pageToFetch}&limit=${PAGE_LIMIT}`,
+          user?.token
+        );
+
+        if (res?.success) {
+          const newPlayers = res.players || [];
+
+          if (isRefresh || pageToFetch === 1) {
+            setPlayers(newPlayers);
+          } else {
+            setPlayers((prev) => [...prev, ...newPlayers]);
+          }
+
+          setPage(pageToFetch);
+
+          // SAFEST HAS-MORE CHECK:
+          // If the API returns fewer items than the limit, we've hit the end.
+          if (res.hasMore !== undefined) {
+            setHasMore(res.hasMore);
+          } else {
+            setHasMore(newPlayers.length === PAGE_LIMIT);
+          }
+        }
+      } catch (error) {
+        console.error('Fetch players error:', error);
+      } finally {
+        setInitialLoading(false);
+        setLoadingMore(false);
+        setRefreshing(false);
+      }
+    },
+    [user?.token]
+  );
+
+  useEffect(() => {
+    fetchPlayers(1);
+  }, [fetchPlayers]);
+
+  // Pull-to-refresh
+  const handleRefresh = () => {
+    setRefreshing(true);
+    setHasMore(true);
+    fetchPlayers(1, true);
+  };
+
+  // Scroll to bottom pagination
+  const handleLoadMore = () => {
+    if (initialLoading || loadingMore || refreshing || !hasMore) {
+      return; // Prevent duplicate API calls
+    }
+
+    setLoadingMore(true);
+    fetchPlayers(page + 1);
+  };
+
+  // Filtered Players View
   const filteredPlayers = useMemo(() => {
     return players.filter((player) => {
-      const matchesSearch = player.name
+      const name = player.fullName || player.name || '';
+      const category = player.role || player.category || '';
+
+      const matchesSearch = name
         .toLowerCase()
         .includes(searchQuery.trim().toLowerCase());
 
       const matchesCategory =
         selectedFilter === 'All'
           ? true
-          : player.category.toLowerCase() === selectedFilter.toLowerCase();
+          : category.toLowerCase() === selectedFilter.toLowerCase();
 
       return matchesSearch && matchesCategory;
     });
   }, [players, searchQuery, selectedFilter]);
 
-  const handleOpenModal = () => {
-    setFullName('');
-    setGender('Male');
-    setPlayingCategory('Singles');
-    setPhoneNumber('');
-    setIsModalVisible(true);
-  };
-
-  const handleCreatePlayer = () => {
-    if (!fullName.trim()) return;
-
-    const names = fullName.trim().split(' ');
-    const initials =
-      names.length > 1
-        ? `${names[0][0]}${names[names.length - 1][0]}`.toUpperCase()
-        : names[0].slice(0, 2).toUpperCase();
-
-    const newPlayer = {
-      id: Date.now().toString(),
-      name: fullName.trim(),
-      initials,
-      category: playingCategory.toUpperCase(),
-      matches: 0,
-      wins: 0,
-      winRate: 0,
-      gender,
-      phone: phoneNumber.trim(),
-    };
-
-    setPlayers((prev) => [newPlayer, ...prev]);
-    setIsModalVisible(false);
-  };
-
-  const renderPlayerCard = ({ item }) => (
-    <View
-      style={[
-        styles.playerCard,
-        { backgroundColor: colors.bgSurface, borderColor: colors.borderColor },
-      ]}
-    >
-      <View style={styles.cardTopRow}>
-        <View style={styles.playerInfoGroup}>
-          <View style={[styles.avatarCircle, { backgroundColor: colors.bgBase }]}>
-            <Text style={[styles.avatarText, { color: colors.textPrimary }]}>
-              {item.initials}
+  const renderPlayerCard = ({ item }) => {
+    const name = item.fullName || item.name || 'Unknown';
+    const category = (item.role || item.category || 'SINGLE').toUpperCase();
+    
+    return (
+      <TouchableOpacity
+        style={[
+          styles.playerCard,
+          { backgroundColor: colors.bgSurface, borderColor: colors.borderColor },
+        ]}
+        activeOpacity={0.8}
+        onPress={() => navigation.navigate('PlayerProfile', { item })}
+      >
+        <View style={styles.cardTopRow}>
+          <View style={styles.playerInfoGroup}>
+            <View style={[styles.avatarCircle, { backgroundColor: colors.bgBase }]}>
+              {item?.profile_image ? (
+                <Image source={{ uri: item.profile_image }} style={{ width: 42, height: 42, borderRadius: 21 }} />
+              ) : (
+                <Text style={[styles.avatarText, { color: colors.textPrimary }]}>
+                  {getInitials(name)}
+                </Text>
+              )}
+            </View>
+            <Text style={[styles.playerName, { color: colors.textPrimary }]} numberOfLines={1}>
+              {name}
             </Text>
           </View>
-          <Text style={[styles.playerName, { color: colors.textPrimary }]}>
-            {item.name}
-          </Text>
+
+          <View style={[styles.categoryBadge, { backgroundColor: colors.bgBase }]}>
+            <Text style={[styles.categoryBadgeText, { color: colors.textTertiary }]}>
+              {category}
+            </Text>
+          </View>
         </View>
+      </TouchableOpacity>
+    );
+  };
 
-        <View style={[styles.categoryBadge, { backgroundColor: colors.bgBase }]}>
-          <Text style={[styles.categoryBadgeText, { color: colors.textTertiary }]}>
-            {item.category}
-          </Text>
-        </View>
+  const renderFooter = () => {
+    if (!loadingMore) return <View style={{ height: 20 }} />;
+    return (
+      <View style={styles.footerLoader}>
+        <ActivityIndicator size="small" color={colors.textPrimary} />
       </View>
-
-      <View style={styles.cardDivider} />
-
-      <View style={styles.statsRow}>
-        <Text style={[styles.statText, { color: colors.textSecondary }]}>
-          {item.matches} Matches
-        </Text>
-        <Text style={[styles.statDot, { color: colors.textTertiary }]}>•</Text>
-        <Text style={[styles.statText, { color: colors.textSecondary }]}>
-          {item.wins} Wins
-        </Text>
-        <Text style={[styles.statDot, { color: colors.textTertiary }]}>•</Text>
-        <Text style={[styles.statTextBold, { color: colors.textPrimary }]}>
-          {item.winRate}% Win Rate
-        </Text>
-      </View>
-    </View>
-  );
+    );
+  };
 
   return (
     <SafeAreaView
@@ -215,19 +264,7 @@ const Players = () => {
     >
       {/* Top Header */}
       <View style={[styles.header, { borderBottomColor: colors.borderColor }]}>
-        <Text style={[styles.headerTitle, { color: colors.textPrimary }]}>
-          Players
-        </Text>
-        <TouchableOpacity
-          activeOpacity={0.7}
-          onPress={handleOpenModal}
-          style={[
-            styles.headerAddButton,
-            { borderColor: colors.borderColor, backgroundColor: colors.bgSurface },
-          ]}
-        >
-          <Ionicons name="add" size={20} color={colors.textPrimary} />
-        </TouchableOpacity>
+        <Text style={[styles.headerTitle, { color: colors.textPrimary }]}>Players</Text>
       </View>
 
       {/* Search Bar & Filters */}
@@ -258,17 +295,15 @@ const Players = () => {
                 style={[
                   styles.filterPill,
                   {
-                    backgroundColor: isActive ? colors.accentBg : colors.bgSurface,
-                    borderColor: isActive ? colors.accentBg : colors.borderColor,
+                    backgroundColor: isActive ? colors.textPrimary : colors.bgSurface,
+                    borderColor: isActive ? colors.textPrimary : colors.borderColor,
                   },
                 ]}
               >
                 <Text
                   style={[
                     styles.filterPillText,
-                    {
-                      color: isActive ? colors.accentText : colors.textPrimary,
-                    },
+                    { color: isActive ? colors.bgBase : colors.textPrimary },
                   ]}
                 >
                   {filter}
@@ -279,23 +314,34 @@ const Players = () => {
         </View>
       </View>
 
-      {/* Players List */}
-      <FlatList
-        data={filteredPlayers}
-        keyExtractor={(item) => item.id}
-        renderItem={renderPlayerCard}
-        contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={false}
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Text style={[styles.emptyText, { color: colors.textTertiary }]}>
-              No players found
-            </Text>
-          </View>
-        }
-      />
-
-  
+      {/* List or Skeleton Loading */}
+      {initialLoading ? (
+        <View style={styles.listContent}>
+          {[1, 2, 3, 4, 5, 6].map((key) => (
+            <SkeletonCard key={key} colors={colors} pulseOpacity={pulseAnim} />
+          ))}
+        </View>
+      ) : (
+        <FlatList
+          data={filteredPlayers}
+          keyExtractor={(item, index) => item._id || item.id || index.toString()}
+          renderItem={renderPlayerCard}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          onEndReached={handleLoadMore}
+          onEndReachedThreshold={0.5} 
+          refreshing={refreshing}
+          onRefresh={handleRefresh}
+          ListFooterComponent={renderFooter}
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Text style={[styles.emptyText, { color: colors.textTertiary }]}>
+                No players found
+              </Text>
+            </View>
+          }
+        />
+      )}
 
       {/* Dropdown Options Picker Modal */}
       <Modal
@@ -309,7 +355,6 @@ const Players = () => {
           onPress={() => setPickerType(null)}
           style={[styles.pickerOverlay, { backgroundColor: colors.overlayBg }]}
         >
-          {/* Blocks touch from bubbling up and closing modal if tapping empty space inside the picker menu */}
           <TouchableWithoutFeedback>
             <View
               style={[
@@ -384,15 +429,6 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 22,
     fontWeight: '800',
-    letterSpacing: -0.4,
-  },
-  headerAddButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   searchFilterContainer: {
     paddingHorizontal: 16,
@@ -453,6 +489,7 @@ const styles = StyleSheet.create({
     borderRadius: 21,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
   avatarText: {
     fontSize: 15,
@@ -482,16 +519,9 @@ const styles = StyleSheet.create({
     paddingLeft: 54,
     gap: 6,
   },
-  statText: {
-    fontSize: 13,
-    fontWeight: '400',
-  },
-  statDot: {
-    fontSize: 11,
-  },
-  statTextBold: {
-    fontSize: 13,
-    fontWeight: '700',
+  footerLoader: {
+    paddingVertical: 16,
+    alignItems: 'center',
   },
   emptyContainer: {
     alignItems: 'center',
@@ -500,98 +530,6 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 14,
-  },
-  fab: {
-    position: 'absolute',
-    bottom: 24,
-    right: 18,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
-    elevation: 6,
-  },
-  modalOverlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  keyboardAvoid: {
-    justifyContent: 'flex-end',
-  },
-  bottomSheet: {
-    borderTopLeftRadius: 26,
-    borderTopRightRadius: 26,
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: Platform.OS === 'ios' ? 36 : 24,
-  },
-  dragHandle: {
-    width: 42,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#D4D4D8',
-    alignSelf: 'center',
-    marginBottom: 16,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: '800',
-    letterSpacing: -0.4,
-    marginBottom: 18,
-  },
-  formGroup: {
-    marginBottom: 14,
-  },
-  inputLabel: {
-    fontSize: 11.5,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-    marginBottom: 6,
-  },
-  textInput: {
-    height: 48,
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    fontSize: 14.5,
-  },
-  dropdownSelector: {
-    height: 48,
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  dropdownSelectedText: {
-    fontSize: 14.5,
-    fontWeight: '500',
-  },
-  modalActionRow: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 10,
-  },
-  actionButton: {
-    flex: 1,
-    height: 48,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cancelButton: {
-    borderWidth: 1,
-  },
-  submitButton: {},
-  actionButtonText: {
-    fontSize: 14.5,
-    fontWeight: '700',
   },
   pickerOverlay: {
     flex: 1,

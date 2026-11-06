@@ -1,48 +1,56 @@
 {
   "project_info": {
-    "project_number": "206694148865",
-    "project_id": "lifeshield-6f587",
-    "storage_bucket": "lifeshield-6f587.firebasestorage.app"
+    "project_number": "993194885332",
+    "project_id": "badmintoncore-8dcd7",
+    "storage_bucket": "badmintoncore-8dcd7.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:206694148865:android:e2f1b26ac431d6b8724900",
+        "mobilesdk_app_id": "1:993194885332:android:605559eed8881f7be17b41",
         "android_client_info": {
           "package_name": "com.badmintoncore"
         }
       },
       "oauth_client": [
         {
-          "client_id": "206694148865-e43igbm7kvouauvti06u56l09ii8rqj5.apps.googleusercontent.com",
+          "client_id": "993194885332-9r2i917njbqv8vl74k9g7jsit3gglcgl.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.badmintoncore",
-            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+            "certificate_hash": "bd0aabd503e0668c0cc8f51469da5b7fd8b0a7be"
           }
         },
         {
-          "client_id": "206694148865-1f9npnt8a1als21kb6td5vlfrfud1ftj.apps.googleusercontent.com",
+          "client_id": "993194885332-o0mpvbkr4c8tmqvtvftf0ps8fspm57rj.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.badmintoncore",
+            "certificate_hash": "00eaba394c57665da1a78c56d03d5d9da72ed59f"
+          }
+        },
+        {
+          "client_id": "993194885332-cpvoa2krgk8b70ipb50241l9vuuck5fq.apps.googleusercontent.com",
           "client_type": 3
         }
       ],
       "api_key": [
         {
-          "current_key": "AIzaSyBvye94zuRkUQj19nG73EGpIZmAWsKTjpE"
+          "current_key": "AIzaSyDuHK5O63cH14WfI9vdx8us-1lBnn3LPCE"
         }
       ],
       "services": {
         "appinvite_service": {
           "other_platform_oauth_client": [
             {
-              "client_id": "206694148865-1f9npnt8a1als21kb6td5vlfrfud1ftj.apps.googleusercontent.com",
+              "client_id": "993194885332-cpvoa2krgk8b70ipb50241l9vuuck5fq.apps.googleusercontent.com",
               "client_type": 3
             },
             {
-              "client_id": "206694148865-1uk8cm8463ptfh53p7fiuiq59lsnl17o.apps.googleusercontent.com",
+              "client_id": "993194885332-u7mtqsbjd7athrfgsf7lk92leu22jmt3.apps.googleusercontent.com",
               "client_type": 2,
               "ios_info": {
-                "bundle_id": "com.scoredeck"
+                "bundle_id": "com.badmintoncore"
               }
             }
           ]

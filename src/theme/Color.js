@@ -21,8 +21,8 @@ export const dark = {
   borderColor: '#27272A',
   accentBg: '#FFFFFF',
   accentText: '#000000',
-  danger: '#F87171',
-  success: '#34D399',
+  danger: '#EF4444',
+  success: '#10B981',
   bottomNavBg: 'rgba(24, 24, 27, 0.9)',
   overlayBg: 'rgba(0, 0, 0, 0.7)',
 };
