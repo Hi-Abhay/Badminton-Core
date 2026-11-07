@@ -14,19 +14,27 @@
       },
       "oauth_client": [
         {
-          "client_id": "993194885332-9r2i917njbqv8vl74k9g7jsit3gglcgl.apps.googleusercontent.com",
+          "client_id": "993194885332-93vid2p3ae3mdmu0sil32gcrjleoi470.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.badmintoncore",
-            "certificate_hash": "bd0aabd503e0668c0cc8f51469da5b7fd8b0a7be"
+            "certificate_hash": "0f47d545ee2a65994fd6ff13c1a5008c8af3d01a"
           }
         },
         {
-          "client_id": "993194885332-o0mpvbkr4c8tmqvtvftf0ps8fspm57rj.apps.googleusercontent.com",
+          "client_id": "993194885332-fnab3l1g3egk3b5jantjsulbahuo59bv.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.badmintoncore",
-            "certificate_hash": "00eaba394c57665da1a78c56d03d5d9da72ed59f"
+            "certificate_hash": "aca245cb17c9a7a3d0c4b23c121cc5f5701a5664"
+          }
+        },
+        {
+          "client_id": "993194885332-fsd7d8jofrgts9jgp8v2jrm7f6pts0fi.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.badmintoncore",
+            "certificate_hash": "cd48a2ced779d8cab3379c6cb667015fa454da3e"
           }
         },
         {

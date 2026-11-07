@@ -8,7 +8,8 @@ import {
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 
 GoogleSignin.configure({
-  webClientId: '993194885332-cpvoa2krgk8b70ipb50241l9vuuck5fq.apps.googleusercontent.com',
+  webClientId:
+    '993194885332-cpvoa2krgk8b70ipb50241l9vuuck5fq.apps.googleusercontent.com',
 });
 
 // Clears the cached Google account so the account chooser appears every time.
@@ -17,6 +18,7 @@ async function clearGoogleSession() {
     await GoogleSignin.signOut();
   } catch (e) {
     // ignore: nothing to sign out of
+    console.log(e);
   }
 }
 
@@ -61,5 +63,6 @@ export async function signOutGoogle() {
     await getAuth().signOut();
   } catch (e) {
     // ignore
+    console.log({ Error: e });
   }
 }
