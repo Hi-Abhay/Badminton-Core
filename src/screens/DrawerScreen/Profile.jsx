@@ -87,18 +87,18 @@ const Profile = () => {
           <Ionicons name="menu" size={26} color={theme.textPrimary} />
         </TouchableOpacity>
 
-        <Text style={[styles.headerTitle, { color: theme.textPrimary }]}>Profile</Text>
+        <Text style={[styles.headerTitle, { color: theme.textPrimary,right : 10 }]}>Profile</Text>
 
         <TouchableOpacity
           style={[styles.iconButton]}
           onPress={() => setIsEditing(!isEditing)}
           activeOpacity={0.7}
         >
-          <Ionicons
+          {/* <Ionicons
             name={isEditing ? 'checkmark' : 'create'}
             size={25}
             color={isEditing ? theme.success : theme.textPrimary}
-          />
+          /> */}
         </TouchableOpacity>
       </View>
 
@@ -114,7 +114,7 @@ const Profile = () => {
           <View style={styles.avatarWrapper}>
             <Image
               source={{
-                uri: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80',
+                uri: user?.image,
               }}
               style={[styles.avatar, { borderColor: theme.borderColor }]}
             />
@@ -181,7 +181,7 @@ const Profile = () => {
           </View>
 
           {/* Mobile */}
-          <View style={styles.fieldGroup}>
+          {/* <View style={styles.fieldGroup}>
             <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>Mobile Number</Text>
             <View
               style={[
@@ -205,7 +205,7 @@ const Profile = () => {
                 placeholderTextColor={theme.textTertiary}
               />
             </View>
-          </View>
+          </View> */}
 
           {/* Email Address (Non-Editable) */}
           <View style={styles.fieldGroup}>
