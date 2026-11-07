@@ -12,25 +12,19 @@ import {
   Platform,
   useColorScheme,
   ActivityIndicator,
+  Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useSelector } from 'react-redux';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { dark, light } from '../../theme/Color';
 import { handleEdges } from '../../utils/edges';
-import { get_api, post_api, patch_api } from '../../utils/api';
+import { get_api, post_api, patch_api, WS_BASE_URL } from '../../utils/api';
 
-// Native WebSocket server endpoint
-const WS_BASE_URL = 'wss://renata-pungent-johnna.ngrok-free.dev';
-
-// If this screen is ever placed under a *native* navigation header (not the
-// custom header below), set this to that header's height so iOS calculates
-// the correct padding. With the current custom header rendered as a sibling
-// above KeyboardAvoidingView, 0 is correct.
 const KEYBOARD_VERTICAL_OFFSET = 0;
 
-// Formats message timestamps into clean 12-hour AM/PM time
 const formatMessageTime = (isoString) => {
   if (!isoString) return '';
   try {
@@ -41,27 +35,64 @@ const formatMessageTime = (isoString) => {
   }
 };
 
+// ========================================================
+// SKELETON LOADER COMPONENT
+// ========================================================
+const ChatSkeleton = ({ colors }) => {
+  const pulseAnim = useRef(new Animated.Value(0.3)).current;
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 0.7, duration: 800, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 0.3, duration: 800, useNativeDriver: true }),
+      ])
+    ).start();
+  }, [pulseAnim]);
+
+  // Dummy array to render placeholder bubbles
+  const skeletonData = [
+    { id: 1, isMe: true, width: '60%' },
+    { id: 2, isMe: false, width: '40%' },
+    { id: 3, isMe: true, width: '75%' },
+    { id: 4, isMe: false, width: '50%' },
+    { id: 5, isMe: false, width: '65%' },
+  ];
+
+  return (
+    <View style={styles.skeletonContainer}>
+      {skeletonData.map((item) => (
+        <View key={item.id} style={item.isMe ? styles.sentRow : styles.receivedRow}>
+          <Animated.View
+            style={[
+              item.isMe ? styles.sentBubble : styles.receivedBubble,
+              {
+                backgroundColor: item.isMe ? colors.accentBg : colors.bgSurface,
+                borderColor: item.isMe ? 'transparent' : colors.borderColor,
+                opacity: pulseAnim,
+                width: item.width,
+                height: 40,
+              },
+            ]}
+          />
+        </View>
+      ))}
+    </View>
+  );
+};
+
 const Converstation = ({ navigation, route }) => {
   const colorScheme = useColorScheme();
   const colors = colorScheme === 'dark' ? dark : light;
 
-  // Redux auth details
   const auth = useSelector((state) => state?.auth);
   const currentUserId = auth?.user?._id || auth?.user?.id || auth?.id || auth?._id;
   const token = auth?.token;
 
-  // Recipient / Partner details passed from navigation
-  const partner =
-    route?.params?.user?.player ||
-    route?.params?.partner ||
-    route?.params?.user ||
-    {};
+  const partner = route?.params?.user?.player || route?.params?.partner || route?.params?.user || {};
   const recipientId = partner?._id || partner?.id || route?.params?.recipientId;
 
-  // State
-  const [conversationId, setConversationId] = useState(
-    route?.params?.conversationId || null
-  );
+  const [conversationId, setConversationId] = useState(route?.params?.conversationId || null);
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(true);
@@ -82,56 +113,70 @@ const Converstation = ({ navigation, route }) => {
     if (!recipientId || !token) return null;
 
     try {
-      setLoading(true);
-      const res = await post_api('/chats/access', { recipientId }, token);
-      if (res?.success && res?.conversation?._id) {
-        const cId = res.conversation._id;
-        setConversationId(cId);
+      // Attempt to load from cache immediately so the UI is instantly ready
+      let cId = conversationId;
+
+      if (!cId) {
+        const res = await post_api('/chats/access', { recipientId }, token);
+        if (res?.success && res?.conversation?._id) {
+          cId = res.conversation._id;
+          setConversationId(cId);
+        }
+      }
+
+      if (cId) {
+        const cached = await AsyncStorage.getItem(`@chat_${cId}`);
+        if (cached) {
+          setMessages(JSON.parse(cached));
+          setLoading(false); // Disable skeleton if we have offline data
+        }
+
+        // Fetch fresh data in the background to sync
         fetchMessages(cId);
         return cId;
       }
     } catch (error) {
-      // console.error('Error accessing direct conversation:', error);
+      // Handle error quietly
     } finally {
+      // Safety catch to remove skeleton if everything fails
       setLoading(false);
     }
     return null;
-  }, [recipientId, token]);
+  }, [recipientId, token, conversationId]);
 
   // ========================================================
-  // 2. FETCH PAGINATED MESSAGE HISTORY
+  // 2. FETCH PAGINATED MESSAGE HISTORY & SYNC
   // ========================================================
   const fetchMessages = async (cId, beforeTimestamp = null) => {
     if (!cId || !token) return;
 
     try {
-      if (beforeTimestamp) {
-        setLoadingMore(true);
-      }
+      if (beforeTimestamp) setLoadingMore(true);
 
       let endpoint = `/chats/${cId}/messages?limit=30`;
-      if (beforeTimestamp) {
-        endpoint += `&before=${encodeURIComponent(beforeTimestamp)}`;
-      }
+      if (beforeTimestamp) endpoint += `&before=${encodeURIComponent(beforeTimestamp)}`;
 
       const res = await get_api(endpoint, token);
 
       if (res?.success && Array.isArray(res?.messages)) {
-        // Backend returns chronological [oldest ... newest].
-        // Inverted FlatList requires [newest ... oldest] so reverse.
         const formatted = [...res.messages].reverse();
 
         if (beforeTimestamp) {
           setMessages((prev) => [...prev, ...formatted]);
         } else {
-          setMessages(formatted);
+          // SYNC FIX: Merge fresh network messages without overwriting pending local ones
+          setMessages((prev) => {
+            const pendingLocal = prev.filter(
+              (m) => m.tempId && (m.status === 'sending' || m.status === 'failed')
+            );
+            return [...pendingLocal, ...formatted];
+          });
           markConversationAsRead(cId);
         }
-
         setHasMore(res.hasMore ?? false);
       }
     } catch (error) {
-      // console.error('Error fetching chat messages:', error);
+      // Error fetching
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -146,28 +191,31 @@ const Converstation = ({ navigation, route }) => {
     }
   };
 
-  // Mark all unread messages as read
   const markConversationAsRead = (cId) => {
     if (!cId) return;
-
-    // REST fallback
     patch_api(`/chats/${cId}/read`, {}, token).catch(() => { });
-
-    // Real-time WebSocket emission
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(
-        JSON.stringify({
-          action: 'mark_read',
-          conversationId: cId,
-          recipientId,
-        })
-      );
+      wsRef.current.send(JSON.stringify({ action: 'mark_read', conversationId: cId, recipientId }));
     }
   };
 
   useEffect(() => {
     initConversation();
   }, [initConversation]);
+
+  // SYNC FIX: Auto-save the newest 50 messages whenever the chat successfully updates
+  useEffect(() => {
+    if (conversationId && messages.length > 0) {
+      const saveCache = async () => {
+        try {
+          await AsyncStorage.setItem(`@chat_${conversationId}`, JSON.stringify(messages.slice(0, 50)));
+        } catch (error) {
+          // Failed cache save
+        }
+      };
+      saveCache();
+    }
+  }, [messages, conversationId]);
 
   // ========================================================
   // 3. REAL-TIME WEBSOCKET MULTIPLEXING
@@ -181,13 +229,7 @@ const Converstation = ({ navigation, route }) => {
 
     ws.onopen = () => {
       if (conversationId) {
-        ws.send(
-          JSON.stringify({
-            action: 'mark_read',
-            conversationId,
-            recipientId,
-          })
-        );
+        ws.send(JSON.stringify({ action: 'mark_read', conversationId, recipientId }));
       }
     };
 
@@ -196,66 +238,31 @@ const Converstation = ({ navigation, route }) => {
         const data = JSON.parse(event.data);
         const { type, message, tempId, fromUserId, readBy } = data;
 
-        // A. Sent Message Confirmation (Replaces temporary message with permanent DB record)
         if (type === 'message_sent_ack') {
-          setMessages((prev) =>
-            prev.map((m) =>
-              m._id === tempId || m.tempId === tempId
-                ? { ...message, tempId: null, status: data.status || message.status }
-                : m
-            )
-          );
-        }
-
-        // B. New Incoming Message from Partner
-        else if (type === 'new_message' && message) {
-          const isThisChat =
-            String(data.conversationId) === String(conversationId) ||
-            String(message.conversationId) === String(conversationId);
-
+          setMessages((prev) => prev.map((m) =>
+            m._id === tempId || m.tempId === tempId ? { ...message, tempId: null, status: data.status || message.status } : m
+          ));
+        } else if (type === 'new_message' && message) {
+          const isThisChat = String(data.conversationId) === String(conversationId) || String(message.conversationId) === String(conversationId);
           if (isThisChat) {
             setMessages((prev) => [message, ...prev]);
-
-            // Instant Double Blue Tick acknowledgement if active in chat
             if (ws.readyState === WebSocket.OPEN) {
-              ws.send(
-                JSON.stringify({
-                  action: 'mark_read',
-                  conversationId,
-                  recipientId,
-                })
-              );
+              ws.send(JSON.stringify({ action: 'mark_read', conversationId, recipientId }));
             }
           }
-        }
-
-        // C. Opponent Read My Messages (Gray ticks turn into Blue Double Ticks)
-        else if (type === 'messages_read') {
+        } else if (type === 'messages_read') {
           if (String(readBy) === String(recipientId)) {
-            setMessages((prev) =>
-              prev.map((m) => (m.status !== 'read' ? { ...m, status: 'read' } : m))
-            );
+            setMessages((prev) => prev.map((m) => (m.status !== 'read' ? { ...m, status: 'read' } : m)));
           }
-        }
-
-        // D. Typing Indicator Relays
-        else if (type === 'typing' && String(fromUserId) === String(recipientId)) {
+        } else if (type === 'typing' && String(fromUserId) === String(recipientId)) {
           setIsPartnerTyping(true);
         } else if (type === 'stop_typing' && String(fromUserId) === String(recipientId)) {
           setIsPartnerTyping(false);
         }
-      } catch (err) {
-        // console.error('Socket onmessage parse error:', err);
-      }
+      } catch (err) { }
     };
 
-    ws.onerror = (e) => {
-      // console.log('Chat WS connection notice:', e.message || 'Connecting...');
-    };
-
-    ws.onclose = () => {
-      wsRef.current = null;
-    };
+    ws.onclose = () => { wsRef.current = null; };
 
     return () => {
       ws.close();
@@ -270,19 +277,14 @@ const Converstation = ({ navigation, route }) => {
     const textToSend = retryMessage ? retryMessage.text : inputText.trim();
     if (!textToSend || !recipientId) return;
 
-    // 1. Ensure conversationId is resolved before sending
     let activeConvId = conversationId;
     if (!activeConvId) {
       activeConvId = await initConversation();
       if (!activeConvId) return;
     }
 
-    const tempId =
-      retryMessage?.tempId ||
-      retryMessage?._id ||
-      `temp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    const tempId = retryMessage?.tempId || retryMessage?._id || `temp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
-    // Optimistic UI insertion
     if (!retryMessage) {
       const optimisticMsg = {
         _id: tempId,
@@ -292,7 +294,7 @@ const Converstation = ({ navigation, route }) => {
         recipient: recipientId,
         text: textToSend,
         mediaType: 'text',
-        status: 'sending', // clock icon
+        status: 'sending',
         createdAt: new Date().toISOString(),
         isMe: true,
       };
@@ -301,107 +303,50 @@ const Converstation = ({ navigation, route }) => {
       setInputText('');
       handleStopTyping();
     } else {
-      // Set to sending state on retry
-      setMessages((prev) =>
-        prev.map((m) => (m._id === tempId ? { ...m, status: 'sending' } : m))
-      );
+      setMessages((prev) => prev.map((m) => (m._id === tempId ? { ...m, status: 'sending' } : m)));
     }
 
-    // 2. Primary Route: Send via WebSocket
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(
-        JSON.stringify({
-          action: 'send_message',
-          conversationId: activeConvId,
-          recipientId,
-          text: textToSend,
-          tempId,
-        })
-      );
+      wsRef.current.send(JSON.stringify({ action: 'send_message', conversationId: activeConvId, recipientId, text: textToSend, tempId }));
     } else {
-      // 3. Fallback Route: Send via REST API if WebSocket is offline or reconnecting
       try {
-        const res = await post_api(
-          `/chats/${activeConvId}/messages`,
-          { recipientId, text: textToSend, mediaType: 'text' },
-          token
-        );
-
+        const res = await post_api(`/chats/${activeConvId}/messages`, { recipientId, text: textToSend, mediaType: 'text' }, token);
         if (res?.success && res?.message) {
-          setMessages((prev) =>
-            prev.map((m) =>
-              m._id === tempId || m.tempId === tempId
-                ? { ...res.message, tempId: null }
-                : m
-            )
-          );
+          setMessages((prev) => prev.map((m) => m._id === tempId || m.tempId === tempId ? { ...res.message, tempId: null } : m));
         } else {
           markMessageFailed(tempId);
         }
       } catch (apiErr) {
-        // console.error('REST fallback send error:', apiErr);
         markMessageFailed(tempId);
       }
     }
   };
 
   const markMessageFailed = (tempId) => {
-    setMessages((prev) =>
-      prev.map((m) =>
-        m._id === tempId || m.tempId === tempId ? { ...m, status: 'failed' } : m
-      )
-    );
+    setMessages((prev) => prev.map((m) => m._id === tempId || m.tempId === tempId ? { ...m, status: 'failed' } : m));
   };
 
   // ========================================================
-  // 5. TYPING INDICATOR THROTTLER
+  // 5. TYPING INDICATOR & KEYBOARD HANDLING
   // ========================================================
   const handleInputChange = (text) => {
     setInputText(text);
-
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || !conversationId) return;
-
     if (!isTypingRef.current) {
       isTypingRef.current = true;
-      wsRef.current.send(
-        JSON.stringify({
-          action: 'typing',
-          conversationId,
-          recipientId,
-        })
-      );
+      wsRef.current.send(JSON.stringify({ action: 'typing', conversationId, recipientId }));
     }
-
-    if (typingTimeoutRef.current) {
-      clearTimeout(typingTimeoutRef.current);
-    }
-
-    typingTimeoutRef.current = setTimeout(() => {
-      handleStopTyping();
-    }, 1800);
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => { handleStopTyping(); }, 1800);
   };
 
   const handleStopTyping = () => {
     if (isTypingRef.current && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       isTypingRef.current = false;
-      wsRef.current.send(
-        JSON.stringify({
-          action: 'stop_typing',
-          conversationId,
-          recipientId,
-        })
-      );
+      wsRef.current.send(JSON.stringify({ action: 'stop_typing', conversationId, recipientId }));
     }
   };
 
-  // ========================================================
-  // 6. KEYBOARD HANDLING
-  // ========================================================
-  // Because the FlatList is inverted, offset 0 is the visual BOTTOM of the
-  // list (the newest message, sitting right above the input bar). If the
-  // user had scrolled up through history and then taps the input, we
-  // re-anchor to offset 0 so the latest message and the input stay visible
-  // above the keyboard instead of leaving the view wherever it was scrolled.
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const showSub = Keyboard.addListener(showEvent, () => {
@@ -409,49 +354,30 @@ const Converstation = ({ navigation, route }) => {
         flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
       });
     });
-
-    return () => {
-      showSub.remove();
-    };
+    return () => { showSub.remove(); };
   }, []);
 
   // ========================================================
-  // 7. RENDER MESSAGE BUBBLE & TICKS
+  // 6. RENDER
   // ========================================================
   const renderMessageItem = ({ item }) => {
-    // Challenge card payload
     if (item.type === 'challenge' || item.mediaType === 'challenge') {
       return (
         <View style={styles.challengeWrapper}>
-          <View
-            style={[
-              styles.challengeCard,
-              { backgroundColor: colors.bgSurface, borderColor: colors.borderColor },
-            ]}
-          >
+          <View style={[styles.challengeCard, { backgroundColor: colors.bgSurface, borderColor: colors.borderColor }]}>
             <View style={styles.challengeHeader}>
               <View style={[styles.challengeIconCircle, { backgroundColor: colors.bgBase }]}>
                 <Ionicons name="trophy-outline" size={16} color={colors.textPrimary} />
               </View>
-              <Text style={[styles.challengeTitle, { color: colors.textPrimary }]}>
-                {item.title || 'Match Challenge'}
-              </Text>
+              <Text style={[styles.challengeTitle, { color: colors.textPrimary }]}>{item.title || 'Match Challenge'}</Text>
             </View>
-
-            <Text style={[styles.challengeDetails, { color: colors.textSecondary }]}>
-              {item.details || item.text}
-            </Text>
-
+            <Text style={[styles.challengeDetails, { color: colors.textSecondary }]}>{item.details || item.text}</Text>
             <View style={[styles.challengeStatusBadge, { backgroundColor: colors.bgBase }]}>
               <Ionicons name="checkmark-circle" size={14} color={colors.success} />
-              <Text style={[styles.challengeStatusText, { color: colors.success }]}>
-                Accepted
-              </Text>
+              <Text style={[styles.challengeStatusText, { color: colors.success }]}>Accepted</Text>
             </View>
           </View>
-          <Text style={[styles.bubbleTimeCenter, { color: colors.textTertiary }]}>
-            {formatMessageTime(item.createdAt)}
-          </Text>
+          <Text style={[styles.bubbleTimeCenter, { color: colors.textTertiary }]}>{formatMessageTime(item.createdAt)}</Text>
         </View>
       );
     }
@@ -460,7 +386,6 @@ const Converstation = ({ navigation, route }) => {
     const isMe = item.isMe || String(senderId) === String(currentUserId);
     const msgTime = formatMessageTime(item.createdAt);
 
-    // Sent Bubble (With WhatsApp-Style Delivery States)
     if (isMe) {
       const isRead = item.status === 'read';
       const isDelivered = item.status === 'delivered';
@@ -470,37 +395,17 @@ const Converstation = ({ navigation, route }) => {
       return (
         <View style={styles.sentRow}>
           <View style={[styles.sentBubble, { backgroundColor: colors.accentBg }]}>
-            <Text style={[styles.sentText, { color: colors.accentText }]}>
-              {item.text}
-            </Text>
+            <Text style={[styles.sentText, { color: colors.accentText }]}>{item.text}</Text>
             <View style={styles.metaRow}>
-              <Text style={[styles.metaTime, { color: colors.accentText, opacity: 0.75 }]}>
-                {msgTime}
-              </Text>
-
+              <Text style={[styles.metaTime, { color: colors.accentText, opacity: 0.75 }]}>{msgTime}</Text>
               {isFailed ? (
-                <TouchableOpacity
-                  activeOpacity={0.7}
-                  onPress={() => handleSend(item)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  style={{ flexDirection: 'row', alignItems: 'center' }}
-                >
+                <TouchableOpacity activeOpacity={0.7} onPress={() => handleSend(item)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <Ionicons name="alert-circle" size={14} color="#EF4444" style={styles.receiptIcon} />
                 </TouchableOpacity>
               ) : isSending ? (
-                <Ionicons
-                  name="time-outline"
-                  size={12}
-                  color={colors.accentText}
-                  style={[styles.receiptIcon, { opacity: 0.7 }]}
-                />
+                <Ionicons name="time-outline" size={12} color={colors.accentText} style={[styles.receiptIcon, { opacity: 0.7 }]} />
               ) : (
-                <Ionicons
-                  name={isRead || isDelivered ? 'checkmark-done' : 'checkmark'}
-                  size={14}
-                  color={isRead ? '#38BDF8' : colors.accentText} // WhatsApp blue ticks on read
-                  style={styles.receiptIcon}
-                />
+                <Ionicons name={isRead || isDelivered ? 'checkmark-done' : 'checkmark'} size={14} color={isRead ? '#38BDF8' : colors.accentText} style={styles.receiptIcon} />
               )}
             </View>
           </View>
@@ -508,106 +413,47 @@ const Converstation = ({ navigation, route }) => {
       );
     }
 
-    // Received Bubble
     return (
       <View style={styles.receivedRow}>
-        <View
-          style={[
-            styles.receivedBubble,
-            { backgroundColor: colors.bgSurface, borderColor: colors.borderColor },
-          ]}
-        >
-          <Text style={[styles.receivedText, { color: colors.textPrimary }]}>
-            {item.text}
-          </Text>
-          <Text style={[styles.metaTime, { color: colors.textTertiary, alignSelf: 'flex-end' }]}>
-            {msgTime}
-          </Text>
+        <View style={[styles.receivedBubble, { backgroundColor: colors.bgSurface, borderColor: colors.borderColor }]}>
+          <Text style={[styles.receivedText, { color: colors.textPrimary }]}>{item.text}</Text>
+          <Text style={[styles.metaTime, { color: colors.textTertiary, alignSelf: 'flex-end' }]}>{msgTime}</Text>
         </View>
       </View>
     );
   };
 
   return (
-    <SafeAreaView
-      edges={handleEdges ? handleEdges() : ['top', 'left', 'right', 'bottom']}
-      style={[styles.container, { backgroundColor: colors.bgBase }]}
-    >
-      {/* 1v1 Header Bar */}
-      <View
-        style={[
-          styles.header,
-          { backgroundColor: colors.bgSurface, borderBottomColor: colors.borderColor },
-        ]}
-      >
-        <TouchableOpacity
-          onPress={() => navigation?.goBack()}
-          activeOpacity={0.7}
-          style={styles.backBtn}
-        >
+    <SafeAreaView edges={handleEdges ? handleEdges() : ['top', 'left', 'right', 'bottom']} style={[styles.container, { backgroundColor: colors.bgBase }]}>
+      <View style={[styles.header, { backgroundColor: colors.bgSurface, borderBottomColor: colors.borderColor }]}>
+        <TouchableOpacity onPress={() => navigation?.goBack()} activeOpacity={0.7} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
-
         <View style={styles.partnerProfile}>
           <View style={styles.avatarWrap}>
             {partner?.profile_image || partner?.avatar ? (
-              <Image
-                source={{ uri: partner?.profile_image || partner?.avatar }}
-                style={styles.avatarImg}
-              />
+              <Image source={{ uri: partner?.profile_image || partner?.avatar }} style={styles.avatarImg} />
             ) : (
-              <View
-                style={[
-                  styles.avatarPlaceholder,
-                  { backgroundColor: colors.bgBase, borderColor: colors.borderColor },
-                ]}
-              >
-                <Text style={[styles.avatarInitial, { color: colors.textPrimary }]}>
-                  {(partner?.fullName || '?')[0].toUpperCase()}
-                </Text>
+              <View style={[styles.avatarPlaceholder, { backgroundColor: colors.bgBase, borderColor: colors.borderColor }]}>
+                <Text style={[styles.avatarInitial, { color: colors.textPrimary }]}>{(partner?.fullName || '?')[0].toUpperCase()}</Text>
               </View>
             )}
-            {partnerOnline && (
-              <View
-                style={[
-                  styles.onlineDot,
-                  { backgroundColor: colors.success, borderColor: colors.bgSurface },
-                ]}
-              />
-            )}
+            {partnerOnline && <View style={[styles.onlineDot, { backgroundColor: colors.success, borderColor: colors.bgSurface }]} />}
           </View>
-
           <View style={styles.partnerDetails}>
-            <Text
-              numberOfLines={1}
-              style={[styles.partnerName, { color: colors.textPrimary }]}
-            >
-              {partner?.fullName || 'Player'}
-            </Text>
+            <Text numberOfLines={1} style={[styles.partnerName, { color: colors.textPrimary }]}>{partner?.fullName || 'Player'}</Text>
           </View>
         </View>
-
         <View style={styles.headerRightActions}>
-          <TouchableOpacity
-            activeOpacity={0.7}
-            style={styles.actionIconBtn}
-            onPress={() => navigation.navigate('CreateMatch', { opponentId: recipientId })}
-          >
+          <TouchableOpacity activeOpacity={0.7} style={styles.actionIconBtn} onPress={() => navigation.navigate('CreateMatch', { opponentId: recipientId })}>
             <Ionicons name="trophy-outline" size={20} color={colors.textPrimary} />
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* Messages Stream & Keyboard Layer */}
-      <KeyboardAvoidingView
-        style={styles.flexContainer}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={KEYBOARD_VERTICAL_OFFSET}
-      >
+      <KeyboardAvoidingView style={styles.flexContainer} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={KEYBOARD_VERTICAL_OFFSET}>
         {loading ? (
-          <View style={styles.loaderContainer}>
-            <ActivityIndicator size="large" color={colors.textPrimary} />
-          </View>
+          <ChatSkeleton colors={colors} />
         ) : (
           <FlatList
             ref={flatListRef}
@@ -622,52 +468,14 @@ const Converstation = ({ navigation, route }) => {
             contentContainerStyle={styles.messageListContent}
             onEndReached={handleLoadMore}
             onEndReachedThreshold={0.2}
-            ListFooterComponent={
-              loadingMore ? (
-                <ActivityIndicator
-                  size="small"
-                  color={colors.textTertiary}
-                  style={{ marginVertical: 12 }}
-                />
-              ) : null
-            }
+            ListFooterComponent={loadingMore ? <ActivityIndicator size="small" color={colors.textTertiary} style={{ marginVertical: 12 }} /> : null}
           />
         )}
-
-        {/* Bottom Input Bar */}
-        <View
-          style={[
-            styles.inputBarContainer,
-          ]}
-        >
-          <View
-            style={[
-              styles.inputWrapper,
-              { backgroundColor: colors.bgSurface, borderColor: colors.borderColor },
-            ]}
-          >
-            <TextInput
-              value={inputText}
-              onChangeText={handleInputChange}
-              placeholder="Message partner..."
-              placeholderTextColor={colors.textTertiary}
-              numberOfLines={1}
-              style={[styles.textInput, { color: colors.textPrimary }]}
-            />
+        <View style={[styles.inputBarContainer]}>
+          <View style={[styles.inputWrapper, { backgroundColor: colors.bgSurface, borderColor: colors.borderColor }]}>
+            <TextInput value={inputText} onChangeText={handleInputChange} placeholder="Message partner..." placeholderTextColor={colors.textTertiary} numberOfLines={1} style={[styles.textInput, { color: colors.textPrimary }]} />
           </View>
-
-          <TouchableOpacity
-            activeOpacity={0.8}
-            onPress={() => handleSend()}
-            disabled={!inputText.trim()}
-            style={[
-              styles.sendBtn,
-              {
-                backgroundColor: colors.accentBg,
-                opacity: inputText.trim() ? 1 : 0.4,
-              },
-            ]}
-          >
+          <TouchableOpacity activeOpacity={0.8} onPress={() => handleSend()} disabled={!inputText.trim()} style={[styles.sendBtn, { backgroundColor: colors.accentBg, opacity: inputText.trim() ? 1 : 0.4 }]}>
             <Ionicons name="arrow-up" size={20} color={colors.accentText} />
           </TouchableOpacity>
         </View>
@@ -679,214 +487,48 @@ const Converstation = ({ navigation, route }) => {
 export default Converstation;
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  flexContainer: {
-    flex: 1,
-  },
-  messagesList: {
-    flex: 1,
-  },
-  loaderContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  backBtn: {
-    padding: 6,
-    marginRight: 4,
-  },
-  partnerProfile: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  avatarWrap: {
-    position: 'relative',
-    marginRight: 10,
-  },
-  avatarImg: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-  },
-  avatarPlaceholder: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarInitial: {
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  onlineDot: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 11,
-    height: 11,
-    borderRadius: 5.5,
-    borderWidth: 2,
-  },
-  partnerDetails: {
-    flex: 1,
-  },
-  partnerName: {
-    fontSize: 15.5,
-    fontWeight: '700',
-    letterSpacing: -0.3,
-  },
-  partnerStatus: {
-    fontSize: 11.5,
-    fontWeight: '600',
-    marginTop: 1,
-  },
-  headerRightActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  actionIconBtn: {
-    padding: 8,
-  },
-  messageListContent: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 12,
-  },
-  sentRow: {
-    alignItems: 'flex-end',
-    marginBottom: 10,
-  },
-  sentBubble: {
-    maxWidth: '78%',
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 20,
-    borderBottomRightRadius: 4,
-  },
-  sentText: {
-    fontSize: 14.5,
-  },
-  receivedRow: {
-    alignItems: 'flex-start',
-    marginBottom: 10,
-  },
-  receivedBubble: {
-    maxWidth: '78%',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 20,
-    borderBottomLeftRadius: 4,
-    borderWidth: 1,
-  },
-  receivedText: {
-    fontSize: 14.5,
-    lineHeight: 20,
-  },
-  metaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-end',
-  },
-  metaTime: {
-    fontSize: 10.5,
-    marginTop: 4,
-  },
-  receiptIcon: {
-    marginLeft: 4,
-  },
-  challengeWrapper: {
-    marginVertical: 12,
-    alignItems: 'center',
-  },
-  challengeCard: {
-    width: '90%',
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 14,
-  },
-  challengeHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 6,
-  },
-  challengeIconCircle: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  challengeTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  challengeDetails: {
-    fontSize: 12.5,
-    marginBottom: 10,
-    lineHeight: 18,
-  },
-  challengeStatusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    gap: 5,
-  },
-  challengeStatusText: {
-    fontSize: 11.5,
-    fontWeight: '700',
-  },
-  bubbleTimeCenter: {
-    fontSize: 11,
-  },
-  inputBarContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    gap: 8,
-  },
-  attachBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  inputWrapper: {
-    flex: 1,
-    borderRadius: 20,
-    borderWidth: 1,
-    paddingHorizontal: 10,
-    paddingVertical: Platform.OS === 'ios' ? 8 : 10,
-    maxHeight: 100,
-  },
-  textInput: {
-    fontSize: 14.5,
-    padding: 0,
-  },
-  sendBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  container: { flex: 1 },
+  flexContainer: { flex: 1 },
+  messagesList: { flex: 1 },
+
+  // Skeleton Styles
+  skeletonContainer: { flex: 1, paddingHorizontal: 16, paddingBottom: 24, justifyContent: 'flex-end' },
+
+  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth },
+  backBtn: { padding: 6, marginRight: 4 },
+  partnerProfile: { flexDirection: 'row', alignItems: 'center', flex: 1 },
+  avatarWrap: { position: 'relative', marginRight: 10 },
+  avatarImg: { width: 40, height: 40, borderRadius: 20 },
+  avatarPlaceholder: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  avatarInitial: { fontSize: 16, fontWeight: '700' },
+  onlineDot: { position: 'absolute', bottom: 0, right: 0, width: 11, height: 11, borderRadius: 5.5, borderWidth: 2 },
+  partnerDetails: { flex: 1 },
+  partnerName: { fontSize: 15.5, fontWeight: '700', letterSpacing: -0.3 },
+  partnerStatus: { fontSize: 11.5, fontWeight: '600', marginTop: 1 },
+  headerRightActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  actionIconBtn: { padding: 8 },
+  messageListContent: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12 },
+  sentRow: { alignItems: 'flex-end', marginBottom: 10 },
+  sentBubble: { maxWidth: '78%', paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, borderBottomRightRadius: 4 },
+  sentText: { fontSize: 14.5 },
+  receivedRow: { alignItems: 'flex-start', marginBottom: 10 },
+  receivedBubble: { maxWidth: '78%', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20, borderBottomLeftRadius: 4, borderWidth: 1 },
+  receivedText: { fontSize: 14.5, lineHeight: 20 },
+  metaRow: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-end' },
+  metaTime: { fontSize: 10.5, marginTop: 4 },
+  receiptIcon: { marginLeft: 4 },
+  challengeWrapper: { marginVertical: 12, alignItems: 'center' },
+  challengeCard: { width: '90%', borderRadius: 16, borderWidth: 1, padding: 14 },
+  challengeHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
+  challengeIconCircle: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  challengeTitle: { fontSize: 14, fontWeight: '700' },
+  challengeDetails: { fontSize: 12.5, marginBottom: 10, lineHeight: 18 },
+  challengeStatusBadge: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, gap: 5 },
+  challengeStatusText: { fontSize: 11.5, fontWeight: '700' },
+  bubbleTimeCenter: { fontSize: 11 },
+  inputBarContainer: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 10, gap: 8 },
+  attachBtn: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  inputWrapper: { flex: 1, borderRadius: 20, borderWidth: 1, paddingHorizontal: 10, paddingVertical: Platform.OS === 'ios' ? 8 : 10, maxHeight: 100 },
+  textInput: { fontSize: 14.5, padding: 0 },
+  sendBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
 });

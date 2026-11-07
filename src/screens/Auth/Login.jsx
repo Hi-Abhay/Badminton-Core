@@ -143,7 +143,7 @@ export const getDeviceFcmToken = async () => {
 
     return '';
   } catch (error) {
-    console.error('FCM token error:', error.code, error.message);
+    // console.error('FCM token error:', error.code, error.message);
     return '';
   }
 };
@@ -551,11 +551,11 @@ const Login = () => {
                 </Text>
               </TouchableOpacity>
 
-              <TouchableOpacity activeOpacity={0.7}>
+              {/* <TouchableOpacity activeOpacity={0.7}>
                 <Text style={[styles.forgotText, { color: theme.textPrimary }]}>
                   Forgot Password?
                 </Text>
-              </TouchableOpacity>
+              </TouchableOpacity> */}
             </View>
 
             {/* Sign In Button with Wave Animation */}

@@ -91,7 +91,7 @@ const Toss = () => {
                 setMatchData(res.match);
             }
         } catch (error) {
-            console.error('Error refreshing toss match details:', error);
+            // console.error('Error refreshing toss match details:', error);
         } finally {
             setRefreshing(false);
         }
@@ -227,8 +227,8 @@ const Toss = () => {
                     <RefreshControl
                         refreshing={refreshing}
                         onRefresh={onRefresh}
-                        tintColor={colors.textPrimary}
-                        colors={[colors.textPrimary]}
+                        tintColor={'#FFFFFF'}
+                        colors={['#000000']}
                     />
                 }
             >

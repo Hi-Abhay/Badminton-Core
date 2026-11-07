@@ -171,7 +171,7 @@ const DrawerNavigation = () => {
           ),
         }}
       />
-      <Drawer.Screen
+      {/* <Drawer.Screen
         name="Setting"
         component={Setting}
         options={{
@@ -183,7 +183,7 @@ const DrawerNavigation = () => {
             <Ionicons name="settings-outline" size={18} color={color} />
           ),
         }}
-      />
+      /> */}
     </Drawer.Navigator>
   );
 };

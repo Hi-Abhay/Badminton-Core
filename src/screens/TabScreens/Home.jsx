@@ -448,7 +448,7 @@ const Home = () => {
           setLiveFeeds(res?.matches || []);
         }
       } catch (error) {
-        console.error('Failed to fetch live matches:', error);
+        // console.error('Failed to fetch live matches:', error);
       } finally {
         if (!isRefresh) setLoadingLive(false);
       }
@@ -465,7 +465,7 @@ const Home = () => {
           setSoonFeeds(res?.matches || []);
         }
       } catch (error) {
-        console.error('Failed to fetch upcoming matches:', error);
+        // console.error('Failed to fetch upcoming matches:', error);
       } finally {
         if (!isRefresh) setLoadingUpcoming(false);
       }
@@ -488,7 +488,7 @@ const Home = () => {
           setRecentMatches([]);
         }
       } catch (error) {
-        console.error('Failed to fetch recent matches:', error);
+        // console.error('Failed to fetch recent matches:', error);
       } finally {
         if (!isRefresh) setLoadingRecent(false);
       }

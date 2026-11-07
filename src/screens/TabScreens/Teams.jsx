@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import {
   StyleSheet,
   Text,
@@ -37,15 +37,12 @@ const TeamCardSkeleton = ({ colors, pulseAnim }) => {
   return (
     <View style={[styles.teamCard, { backgroundColor: colors.bgSurface, borderColor: colors.borderColor }]}>
       <View style={styles.cardHeader}>
-        <Animated.View style={[styles.skeletonLine, { width: '45%', height: 18, backgroundColor: placeholderBg, opacity: pulseAnim }]} />
-        <Animated.View style={[styles.skeletonLine, { width: 68, height: 22, borderRadius: 8, backgroundColor: placeholderBg, opacity: pulseAnim }]} />
+        <Animated.View style={[styles.skeletonLine, { width: '55%', height: 22, backgroundColor: placeholderBg, opacity: pulseAnim }]} />
+        <Animated.View style={[styles.skeletonLine, { width: 70, height: 24, borderRadius: 12, backgroundColor: placeholderBg, opacity: pulseAnim }]} />
       </View>
-      <Animated.View style={[styles.skeletonLine, { width: '28%', height: 13, marginTop: 8, marginBottom: 14, backgroundColor: placeholderBg, opacity: pulseAnim }]} />
-      <Animated.View style={[styles.skeletonLine, { width: '70%', height: 15, marginBottom: 14, backgroundColor: placeholderBg, opacity: pulseAnim }]} />
-      <View style={styles.statsRow}>
-        <Animated.View style={[styles.skeletonLine, { width: 75, height: 13, backgroundColor: placeholderBg, opacity: pulseAnim }]} />
-        <Animated.View style={[styles.skeletonLine, { width: 65, height: 13, backgroundColor: placeholderBg, opacity: pulseAnim }]} />
-      </View>
+      <Animated.View style={[styles.skeletonLine, { width: '30%', height: 14, marginBottom: 12, backgroundColor: placeholderBg, opacity: pulseAnim }]} />
+      <Animated.View style={[styles.skeletonLine, { width: '80%', height: 15, marginBottom: 12, backgroundColor: placeholderBg, opacity: pulseAnim }]} />
+      <Animated.View style={[styles.skeletonLine, { width: '45%', height: 14, backgroundColor: placeholderBg, opacity: pulseAnim }]} />
     </View>
   );
 };
@@ -63,6 +60,9 @@ const Teams = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFilter, setSelectedFilter] = useState('All');
   const [friends, setFriends] = useState([]);
+
+  // Stats Cache State: { [teamId]: { completedMatches, totalWon, winRate } }
+  const [teamStats, setTeamStats] = useState({});
 
   const [isLoadingTeams, setIsLoadingTeams] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -107,6 +107,29 @@ const Teams = () => {
     return () => { showSub.remove(); hideSub.remove(); };
   }, []);
 
+  // Fetch Stats Batch for Teams
+  const fetchStatsForTeams = useCallback(
+    async (teamList) => {
+      teamList.forEach(async (t) => {
+        const teamId = t._id || t.id;
+        if (!teamId) return; // Skip if already loaded
+        try {
+          const statsRes = await get_api(`/matches/team-stats/${teamId}`, user?.token);
+
+          if (statsRes?.success && statsRes?.stats) {
+            setTeamStats((prev) => ({
+              ...prev,
+              [teamId]: statsRes.stats,
+            }));
+          }
+        } catch (err) {
+          console.log(`Error fetching stats for team ${teamId}:`, err);
+        }
+      });
+    },
+    [user?.token]
+  );
+
   const fetchTeams = async (reset = false) => {
     if (reset) {
       if (!isRefreshing) setIsLoadingTeams(true);
@@ -125,9 +148,13 @@ const Teams = () => {
       const res = await get_api(url, user?.token);
 
       if (res?.success) {
-        setTeams(reset ? (res.teams || []) : [...teams, ...(res.teams || [])]);
+        const newTeams = res.teams || [];
+        setTeams(reset ? newTeams : [...teams, ...newTeams]);
         setNextCursor(res.nextCursor);
         setHasNextPage(res.hasNextPage);
+
+        // Fetch stats in the background for newly loaded teams
+        fetchStatsForTeams(newTeams);
       }
     } catch (error) {
       console.log('Error fetching teams:', error);
@@ -240,29 +267,53 @@ const Teams = () => {
   const currentSheetHeight = keyboardHeight > 0 ? Math.min(defaultSheetHeight, availableScreenHeight) : defaultSheetHeight;
 
   const renderTeamCard = ({ item }) => {
+    const tId = item?._id || item?.id;
     const tName = item?.teamName || 'Unknown Team';
     const tCode = item?.teamCode || 'N/A';
     const tType = item?.teamType ? item.teamType.charAt(0).toUpperCase() + item.teamType.slice(1) : 'Unknown';
     const p1Name = item?.player1?.fullName || 'Unknown';
     const p2Name = item?.player2?.fullName || 'Unknown';
+    const stats = teamStats[tId];
 
     const isPendingForMe = item?.player2Status === 'pending' && item?.player2?._id === my_id;
 
     return (
       <TouchableOpacity
         style={[styles.teamCard, { backgroundColor: colors.bgSurface, borderColor: colors.borderColor }]}
-        onPress={() => navigation.navigate('TeamProfile', { item: item })}
+        onPress={() => navigation.navigate('TeamProfile', { item: item, stats: stats })}
       >
         <View style={styles.cardHeader}>
           <Text style={[styles.teamName, { color: colors.textPrimary }]}>{tName}</Text>
+          {stats ? (
+            <View style={[styles.winBadge, { backgroundColor: colors.bgBase, borderColor: colors.borderColor }]}>
+              <Text style={[styles.winBadgeText, { color: colors.textPrimary }]}>
+                {stats.winRate ?? '0%'} WIN
+              </Text>
+            </View>
+          ) : null}
         </View>
-        <Text style={[styles.subtitle, { color: colors.textTertiary }]}>{tCode} • {tType}</Text>
+
+        <Text style={[styles.subtitle, { color: colors.textTertiary }]}>
+          {tCode} • {tType}
+        </Text>
+
         <Text style={styles.partnersRow}>
           <Text style={[styles.partnersLabel, { color: colors.textPrimary }]}>Partners: </Text>
           <Text style={[styles.partnersNames, { color: colors.textSecondary }]}>{p1Name} & {p2Name}</Text>
         </Text>
 
-        {/* INVITATION ACTION ROW */}
+        <View style={styles.statsRow}>
+          {stats ? (
+            <Text style={[styles.statText, { color: colors.textTertiary }]}>
+              {stats.completedMatches ?? 0} Matches   {stats.totalWon ?? 0} Wins
+            </Text>
+          ) : (
+            <Text style={[styles.statText, { color: colors.textTertiary }]}>
+              Loading stats...
+            </Text>
+          )}
+        </View>
+
         {isPendingForMe && (
           <View style={[styles.inviteActionRow, { borderTopColor: colors.borderColor }]}>
             <TouchableOpacity
@@ -501,14 +552,25 @@ const styles = StyleSheet.create({
   filterPill: { paddingHorizontal: 18, paddingVertical: 7, borderRadius: 20, borderWidth: 1 },
   filterPillText: { fontSize: 13.5, fontWeight: '600' },
   listContent: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 90 },
-  teamCard: { borderWidth: 1, borderRadius: 18, paddingHorizontal: 16,paddingVertical : 10, marginBottom: 12 },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  teamName: { fontSize: 16.5, fontWeight: '800', letterSpacing: -0.3 },
-  subtitle: { fontSize: 13, fontWeight: '500', marginTop: 2, marginBottom: 4 },
-  partnersRow: { fontSize: 13.5, marginBottom: 12 },
+
+  /* Updated Team Card Styles */
+  teamCard: { borderWidth: 1, borderRadius: 18, paddingHorizontal: 16, paddingVertical: 16, marginBottom: 12 },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
+  teamName: { fontSize: 18, fontWeight: '800', letterSpacing: -0.3 },
+
+  /* New Win Badge Styles */
+  winBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1 },
+  winBadgeText: { fontSize: 11, fontWeight: '800', letterSpacing: 0.5 },
+
+  subtitle: { fontSize: 14, fontWeight: '500', marginBottom: 10 },
+  partnersRow: { fontSize: 14, marginBottom: 10 },
   partnersLabel: { fontWeight: '700' },
-  partnersNames: { fontWeight: '400' },
-  statsRow: { flexDirection: 'row', gap: 16 },
+  partnersNames: { fontWeight: '500' },
+
+  /* Stats Row Styles */
+  statsRow: { flexDirection: 'row', alignItems: 'center' },
+  statText: { fontSize: 14, fontWeight: '500' },
+  statTextBold: { fontWeight: '800' },
 
   /* Invitation Action Row Styles */
   inviteActionRow: { flexDirection: 'row', gap: 12, marginTop: 16, paddingTop: 16, borderTopWidth: StyleSheet.hairlineWidth },

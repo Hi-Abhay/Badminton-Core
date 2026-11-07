@@ -8,6 +8,10 @@ import {
   useColorScheme,
   StatusBar,
   Alert,
+  Animated,
+  LayoutAnimation,
+  Platform,
+  UIManager,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -16,7 +20,16 @@ import { useSelector } from 'react-redux';
 
 import { light, dark } from '../../../theme/Color';
 import { handleEdges } from '../../../utils/edges';
-import { get_api, post_api } from '../../../utils/api';
+// Added delete_api for the Dismiss Match feature
+import { get_api, post_api, delete_api } from '../../../utils/api';
+
+// Enable LayoutAnimation on Android for the court swap effect
+if (
+  Platform.OS === 'android' &&
+  UIManager.setLayoutAnimationEnabledExperimental
+) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 const Live = () => {
   const colorScheme = useColorScheme();
@@ -25,11 +38,9 @@ const Live = () => {
   const route = useRoute();
   const user = useSelector((state) => state?.auth);
 
-  // Incoming Route Params (Using primitive string ID for stability)
   const initialMatch = route?.params?.match;
   const matchId = initialMatch?._id || route?.params?.matchId;
 
-  // Match Information
   const [matchData, setMatchData] = useState(initialMatch || {});
   const player1Name = matchData?.sideA?.displayName || 'Player A';
   const player2Name = matchData?.sideB?.displayName || 'Player B';
@@ -37,7 +48,6 @@ const Live = () => {
   const maxCap = matchData?.rules?.maxPointCap || 30;
   const totalGames = matchData?.rules?.bestOf || 1;
 
-  // Live Scoreboard State
   const [currentGame, setCurrentGame] = useState(1);
   const [player1Score, setPlayer1Score] = useState(0);
   const [player2Score, setPlayer2Score] = useState(0);
@@ -45,17 +55,24 @@ const Live = () => {
   const [player2GamesWon, setPlayer2GamesWon] = useState(0);
   const [completedGames, setCompletedGames] = useState([]);
 
-  // Server state: 1 = Player 1 (sideA), 2 = Player 2 (sideB)
   const [server, setServer] = useState(1);
-  const [courtSide, setCourtSide] = useState('RIGHT COURT'); // 'RIGHT COURT' | 'LEFT COURT'
+  const [courtSide, setCourtSide] = useState('RIGHT COURT'); 
   const [canUndo, setCanUndo] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
+  
+  // State to track physical card layout swapping
+  const [isSwapped, setIsSwapped] = useState(false);
 
-  // Match Timer State with ref to prevent re-render re-fetching
   const [seconds, setSeconds] = useState(0);
   const secondsRef = useRef(0);
   const [isPaused, setIsPaused] = useState(false);
   const timerRef = useRef(null);
+
+  // Animation Refs for Score Bounce
+  const scaleP1 = useRef(new Animated.Value(1)).current;
+  const scaleP2 = useRef(new Animated.Value(1)).current;
+  const prevP1Score = useRef(0);
+  const prevP2Score = useRef(0);
 
   const formatTime = (secs) => {
     const mins = Math.floor(secs / 60);
@@ -63,7 +80,22 @@ const Live = () => {
     return `${mins.toString().padStart(2, '0')}:${remSecs.toString().padStart(2, '0')}`;
   };
 
-  // 1. Synchronize Live State from API responses (Stable Callback)
+  // Helper to trigger the bounce animation on point increment
+  const triggerBounce = (animValue) => {
+    Animated.sequence([
+      Animated.timing(animValue, {
+        toValue: 1.4,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+      Animated.timing(animValue, {
+        toValue: 1,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
   const syncLiveState = useCallback(
     (liveState, status) => {
       if (!liveState) return;
@@ -73,11 +105,9 @@ const Live = () => {
       setPlayer1GamesWon(liveState.gamesWonSideA || 0);
       setPlayer2GamesWon(liveState.gamesWonSideB || 0);
 
-      // Determine Server (1 = sideA, 2 = sideB)
       const isSideAServer = (liveState.currentServer || 'sideA') === 'sideA';
       setServer(isSideAServer ? 1 : 2);
 
-      // Active Game Scores
       const activeGame =
         liveState.games?.find((g) => g.gameNumber === currentGNum) ||
         liveState.games?.[liveState.games.length - 1] || {
@@ -87,23 +117,27 @@ const Live = () => {
 
       const s1 = activeGame.sideAScore || 0;
       const s2 = activeGame.sideBScore || 0;
+
+      // Trigger Animations if score increased
+      if (s1 > prevP1Score.current) triggerBounce(scaleP1);
+      if (s2 > prevP2Score.current) triggerBounce(scaleP2);
+      
+      prevP1Score.current = s1;
+      prevP2Score.current = s2;
+      
       setPlayer1Score(s1);
       setPlayer2Score(s2);
 
-      // Badminton Court Calculation: Even = Right, Odd = Left based on server's score
       const servingScore = isSideAServer ? s1 : s2;
       setCourtSide(servingScore % 2 === 0 ? 'RIGHT COURT' : 'LEFT COURT');
 
-      // Completed Games Overview
       const finished = (liveState.games || [])
         .filter((g) => g.isCompleted)
         .map((g) => `${g.sideAScore}-${g.sideBScore}`);
       setCompletedGames(finished);
 
-      // Undo Availability
       setCanUndo(Array.isArray(liveState.history) && liveState.history.length > 0);
 
-      // Match Completion Check
       if (status === 'COMPLETED' || liveState.matchWinner) {
         setIsPaused(true);
         const p1Wins = liveState.gamesWonSideA || 0;
@@ -133,10 +167,9 @@ const Live = () => {
         });
       }
     },
-    [matchId, navigation, player1Name, player2Name, targetPoints, totalGames, matchData?.format]
+    [matchId, navigation, player1Name, player2Name, targetPoints, totalGames, matchData?.format, scaleP1, scaleP2]
   );
 
-  // 2. Fetch Live Scoreboard: GET /matches/{id}/live (Stable)
   const fetchLiveScore = useCallback(async () => {
     if (!matchId) return;
     try {
@@ -148,11 +181,10 @@ const Live = () => {
         syncLiveState(res.liveState, res.status);
       }
     } catch (error) {
-      console.error('Failed to fetch live score:', error);
+      // console.error('Failed to fetch live score:', error);
     }
   }, [matchId, user?.token, syncLiveState]);
 
-  // 3. Initial Mount Only: Calls API once when matchId is available
   useEffect(() => {
     if (initialMatch?.liveState) {
       syncLiveState(initialMatch.liveState, initialMatch.status);
@@ -161,7 +193,6 @@ const Live = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matchId]);
 
-  // 4. Timer: Kept isolated so it doesn't trigger network re-fetching
   useEffect(() => {
     if (!isPaused) {
       timerRef.current = setInterval(() => {
@@ -176,7 +207,6 @@ const Live = () => {
     return () => clearInterval(timerRef.current);
   }, [isPaused]);
 
-  // 5. Record Point API: POST /matches/{id}/live/point
   const handleAddPoint = async (playerNumber) => {
     if (isUpdating) return;
     const side = playerNumber === 1 ? 'sideA' : 'sideB';
@@ -201,7 +231,6 @@ const Live = () => {
     }
   };
 
-  // 6. Undo Point API: POST /matches/{id}/live/undo
   const handleUndo = async () => {
     if (isUpdating || !canUndo) return;
 
@@ -225,24 +254,40 @@ const Live = () => {
     }
   };
 
-  // 7. Swap Service Court Ends
+  // Triggers visual layout swap + text swap
   const handleSwapCourtEnds = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setIsSwapped(!isSwapped);
     setCourtSide((prev) =>
       prev === 'RIGHT COURT' ? 'LEFT COURT' : 'RIGHT COURT'
     );
   };
 
-  // 8. Exit Alert
-  const handleStopMatch = () => {
+  // DELETE / DISMISS Match Functionality
+  const handleDismissMatch = () => {
     Alert.alert(
-      'End Match Session?',
-      'Are you sure you want to exit this live scoring screen?',
+      'Dismiss Match?',
+      'Are you sure you want to permanently delete this match? This action cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Exit',
+          text: 'Delete',
           style: 'destructive',
-          onPress: () => navigation.goBack(),
+          onPress: async () => {
+            try {
+              setIsUpdating(true);
+              const res = await delete_api(`/matches/${matchId}`, user?.token);
+              if (res?.success) {
+                navigation.goBack();
+              } else {
+                Alert.alert('Error', res?.message || 'Failed to delete match.');
+              }
+            } catch (error) {
+              Alert.alert('Error', 'Network error while deleting match.');
+            } finally {
+              setIsUpdating(false);
+            }
+          },
         },
       ]
     );
@@ -270,39 +315,25 @@ const Live = () => {
             <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
           </TouchableOpacity>
 
-          {/* LIVE Badge */}
           <View style={styles.liveBadge}>
             <Text style={styles.liveBadgeText}>LIVE</Text>
           </View>
 
-          {/* Match Timer */}
           <Text style={[styles.timerText, { color: colors.textPrimary }]}>
             {formatTime(seconds)}
           </Text>
         </View>
 
-        {/* Action Controls */}
+        {/* Updated Right Group - Dismiss Match */}
         <View style={styles.headerRightGroup}>
           <TouchableOpacity
             activeOpacity={0.7}
-            style={[
-              styles.circleButton,
-              { backgroundColor: colors.bgSurface, borderColor: colors.borderColor },
-            ]}
-            onPress={fetchLiveScore}
+            style={[styles.dismissBtn, { backgroundColor: 'rgba(239, 68, 68, 0.1)' }]}
+            onPress={handleDismissMatch}
+            disabled={isUpdating}
           >
-            <Ionicons name="refresh-outline" size={18} color={colors.textPrimary} />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            activeOpacity={0.7}
-            style={[
-              styles.circleButton,
-              { backgroundColor: colors.bgSurface, borderColor: colors.borderColor },
-            ]}
-            onPress={handleStopMatch}
-          >
-            <Ionicons name="stop" size={16} color={colors.textPrimary} />
+            <Ionicons name="trash-outline" size={16} color="#EF4444" />
+            <Text style={styles.dismissText}>Dismiss</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -311,7 +342,6 @@ const Live = () => {
         contentContainerStyle={styles.container}
         showsVerticalScrollIndicator={false}
       >
-        {/* Game Status Banner */}
         <View style={styles.gameMetaRow}>
           <Text style={[styles.gameMetaTitle, { color: colors.textPrimary }]}>
             GAME {currentGame} OF {totalGames}
@@ -321,8 +351,9 @@ const Live = () => {
           </Text>
         </View>
 
-        {/* Main Scores Grid */}
-        <View style={styles.scoringGrid}>
+        {/* Main Scores Grid with Animated Layout Swap */}
+        <View style={[styles.scoringGrid, { flexDirection: isSwapped ? 'row-reverse' : 'row' }]}>
+          
           {/* Player 1 Card (Side A) */}
           <View
             style={[
@@ -334,17 +365,13 @@ const Live = () => {
               },
             ]}
           >
-            <Text
-              numberOfLines={1}
-              style={[styles.playerName, { color: colors.textPrimary }]}
-            >
+            <Text numberOfLines={1} style={[styles.playerName, { color: colors.textPrimary }]}>
               {player1Name}
             </Text>
             <Text style={[styles.gamesWonText, { color: colors.textTertiary }]}>
               {player1GamesWon} Games Won
             </Text>
 
-            {/* Server Badge or Spacer */}
             <View style={styles.servingBadgeWrapper}>
               {server === 1 ? (
                 <View style={[styles.servingBadge, { backgroundColor: colors.accentBg }]}>
@@ -357,12 +384,16 @@ const Live = () => {
               )}
             </View>
 
-            {/* Score Display */}
-            <Text style={[styles.scoreNumber, { color: colors.textPrimary }]}>
+            {/* Animated Score Display */}
+            <Animated.Text
+              style={[
+                styles.scoreNumber,
+                { color: colors.textPrimary, transform: [{ scale: scaleP1 }] },
+              ]}
+            >
               {player1Score}
-            </Text>
+            </Animated.Text>
 
-            {/* Add Point Action */}
             <TouchableOpacity
               activeOpacity={0.85}
               disabled={isUpdating}
@@ -372,9 +403,7 @@ const Live = () => {
               ]}
               onPress={() => handleAddPoint(1)}
             >
-              <Text style={[styles.addPointText, { color: colors.accentText }]}>
-                +1 Point
-              </Text>
+              <Text style={[styles.addPointText, { color: colors.accentText }]}>+1 Point</Text>
             </TouchableOpacity>
           </View>
 
@@ -389,17 +418,13 @@ const Live = () => {
               },
             ]}
           >
-            <Text
-              numberOfLines={1}
-              style={[styles.playerName, { color: colors.textPrimary }]}
-            >
+            <Text numberOfLines={1} style={[styles.playerName, { color: colors.textPrimary }]}>
               {player2Name}
             </Text>
             <Text style={[styles.gamesWonText, { color: colors.textTertiary }]}>
               {player2GamesWon} Games Won
             </Text>
 
-            {/* Server Badge or Spacer */}
             <View style={styles.servingBadgeWrapper}>
               {server === 2 ? (
                 <View style={[styles.servingBadge, { backgroundColor: colors.accentBg }]}>
@@ -412,12 +437,16 @@ const Live = () => {
               )}
             </View>
 
-            {/* Score Display */}
-            <Text style={[styles.scoreNumber, { color: colors.textPrimary }]}>
+            {/* Animated Score Display */}
+            <Animated.Text
+              style={[
+                styles.scoreNumber,
+                { color: colors.textPrimary, transform: [{ scale: scaleP2 }] },
+              ]}
+            >
               {player2Score}
-            </Text>
+            </Animated.Text>
 
-            {/* Add Point Action */}
             <TouchableOpacity
               activeOpacity={0.85}
               disabled={isUpdating}
@@ -427,9 +456,7 @@ const Live = () => {
               ]}
               onPress={() => handleAddPoint(2)}
             >
-              <Text style={[styles.addPointText, { color: colors.accentText }]}>
-                +1 Point
-              </Text>
+              <Text style={[styles.addPointText, { color: colors.accentText }]}>+1 Point</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -465,9 +492,7 @@ const Live = () => {
             onPress={handleUndo}
           >
             <Ionicons name="arrow-undo-outline" size={18} color={colors.textPrimary} />
-            <Text style={[styles.actionButtonText, { color: colors.textPrimary }]}>
-              Undo Point
-            </Text>
+            <Text style={[styles.actionButtonText, { color: colors.textPrimary }]}>Undo Point</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -552,15 +577,19 @@ const styles = StyleSheet.create({
   headerRightGroup: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
   },
-  circleButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    borderWidth: 1,
+  dismissBtn: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    gap: 4,
+  },
+  dismissText: {
+    color: '#EF4444',
+    fontSize: 13,
+    fontWeight: '700',
   },
   container: {
     paddingHorizontal: 16,
@@ -583,7 +612,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   scoringGrid: {
-    flexDirection: 'row',
     gap: 12,
     marginBottom: 16,
   },

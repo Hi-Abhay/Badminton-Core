@@ -18,10 +18,10 @@ import { useSelector } from 'react-redux';
 
 import { light, dark } from '../../theme/Color';
 import { handleEdges } from '../../utils/edges';
-import { get_api } from '../../utils/api';
+import { get_api, WS_BASE_URL } from '../../utils/api';
 
 // Native WebSocket server endpoint
-const WS_BASE_URL = 'wss://renata-pungent-johnna.ngrok-free.dev';
+
 
 const FILTERS = ['All', 'Unread', 'Online'];
 
@@ -174,7 +174,7 @@ const Chats = () => {
           setTotalUnread(res.totalUnread || 0);
         }
       } catch (error) {
-        console.error('Fetch chats error:', error);
+        // console.error('Fetch chats error:', error);
       } finally {
         if (mode === 'initial') setInitialLoading(false);
         if (mode === 'refresh') setRefreshing(false);
@@ -220,6 +220,8 @@ const Chats = () => {
             const exists = prev.find((c) => String(c._id) === targetId);
 
             if (exists) {
+              console.log(1);
+              
               const updated = {
                 ...exists,
                 lastMessage: message,
@@ -235,7 +237,7 @@ const Chats = () => {
           fetchChats('silent');
         }
       } catch (err) {
-        console.error('Chats WS error:', err);
+        // console.error('Chats WS error:', err);
       }
     };
 
@@ -514,10 +516,10 @@ const Chats = () => {
                 {searchQuery
                   ? `No conversations matching "${searchQuery}"`
                   : selectedFilter === 'Unread'
-                  ? 'No unread messages'
-                  : selectedFilter === 'Online'
-                  ? 'No players currently online'
-                  : 'No conversations yet'}
+                    ? 'No unread messages'
+                    : selectedFilter === 'Online'
+                      ? 'No players currently online'
+                      : 'No conversations yet'}
               </Text>
             </View>
           }

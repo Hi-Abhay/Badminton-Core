@@ -145,17 +145,17 @@ const PlayerProfile = () => {
   const theme = isDark ? dark : light;
   const route = useRoute();
   const player = route?.params?.item || {};
+  const stats = route?.params?.stats
   const navigation = useNavigation();
 
   const user = useSelector((state) => state.auth);
   const currentUserId = user?.user?._id || user?.user?.id || user?.id;
 
-  const [stats, setStats] = useState(null);
   const [matches, setMatches] = useState([]);
 
   // Loading states
   const [loadingStatus, setLoadingStatus] = useState(true);
-  const [loadingStats, setLoadingStats] = useState(true);
+  const [loadingStats, setLoadingStats] = useState(false);
   const [loadingMatches, setLoadingMatches] = useState(true);
 
   // Connection State
@@ -185,7 +185,7 @@ const PlayerProfile = () => {
         setConnectionId(data?.connectionId || null);
       }
     } catch (error) {
-      console.error('Fetch connection status error:', error);
+      // console.error('Fetch connection status error:', error);
     } finally {
       setLoadingStatus(false);
     }
@@ -207,7 +207,7 @@ const PlayerProfile = () => {
         setStats(data?.stats);
       }
     } catch (error) {
-      console.error('Fetch player stats error:', error);
+      // console.error('Fetch player stats error:', error);
     } finally {
       setLoadingStats(false);
     }
@@ -233,7 +233,7 @@ const PlayerProfile = () => {
         setMatches([]);
       }
     } catch (error) {
-      console.error('Fetch match history error:', error);
+      // console.error('Fetch match history error:', error);
     } finally {
       setLoadingMatches(false);
     }
@@ -241,9 +241,9 @@ const PlayerProfile = () => {
 
   useEffect(() => {
     fetchConnectionStatus();
-    fetchStats();
+    // fetchStats();
     fetchMatchHistory();
-  }, [fetchConnectionStatus, fetchStats, fetchMatchHistory]);
+  }, [fetchConnectionStatus, fetchMatchHistory]);
 
   // Handle Send Connection Request
   const handleFollow = async () => {
@@ -266,7 +266,7 @@ const PlayerProfile = () => {
         }
       }
     } catch (error) {
-      console.error('Follow error:', error);
+      // console.error('Follow error:', error);
     } finally {
       setBtnLoading(false);
     }
@@ -289,7 +289,7 @@ const PlayerProfile = () => {
         setConnectionStatus('connected');
       }
     } catch (error) {
-      console.error('Accept connection error:', error);
+      // console.error('Accept connection error:', error);
     } finally {
       setBtnLoading(false);
     }
@@ -309,7 +309,7 @@ const PlayerProfile = () => {
         setConnectionId(null);
       }
     } catch (error) {
-      console.error('Cancel connection error:', error);
+      // console.error('Cancel connection error:', error);
     } finally {
       setBtnLoading(false);
     }

@@ -21,23 +21,25 @@ const TeamProfile = ({ route, navigation }) => {
     const my_id = user?.id
     const colors = isDark ? dark : light;
     const data = route?.params?.item || {}
-    console.log(data);
+    const stats = route?.params?.stats || {}
 
+    console.log(stats);
+    
     // Assuming team data is passed via navigation parameters. 
     // Fallback mock data provided for previewing.
     const team = {
         teamName: data?.teamName,
         teamCode: data?.teamCode,
         teamType: data?.teamType === 'double' ? 'Double' : 'Single',
-        totalMatch: 12,
-        winMatch: 8,
+        totalMatch: stats?.completedMatches,
+        winMatch: stats?.totalWon,
         player1: { fullName: data?.player1?.fullName, role: 'Captain', cate: data?.player1?.role, image: data?.player1?.profile_image },
         player2: { fullName: data?.player2?.fullName, role: 'Player', cate: data?.player1?.role, image: data?.player1?.profile_image },
     };
 
     const matches = team.totalMatch || 0;
     const wins = team.winMatch || 0;
-    const winRate = matches > 0 ? Math.round((wins / matches) * 100) : 0;
+    const winRate = stats?.winRate
 
     const handleLeaveTeam = () => {
         Alert.alert(
@@ -126,7 +128,7 @@ const TeamProfile = ({ route, navigation }) => {
                         </View>
                         <View style={[styles.statDivider, { backgroundColor: colors.borderColor }]} />
                         <View style={styles.statBox}>
-                            <Text style={[styles.statValue, { color: colors.textPrimary }]}>{winRate}%</Text>
+                            <Text style={[styles.statValue, { color: colors.textPrimary }]}>{winRate}</Text>
                             <Text style={[styles.statLabel, { color: colors.textTertiary }]}>Win Rate</Text>
                         </View>
                     </View>
@@ -149,7 +151,7 @@ const TeamProfile = ({ route, navigation }) => {
                 </View>
 
                 {/* ACTIONS SECTION */}
-                <View style={styles.actionSection}>
+                {/* <View style={styles.actionSection}>
                     {data?.player1?._id === my_id ? (<TouchableOpacity
                         activeOpacity={0.8}
                         onPress={handleLeaveTeam}
@@ -167,7 +169,7 @@ const TeamProfile = ({ route, navigation }) => {
                             <Ionicons name="exit-outline" size={20} color={colors.danger} style={{ marginRight: 8 }} />
                             <Text style={[styles.destructiveText, { color: colors.danger }]}>Leave Team</Text>
                         </TouchableOpacity>)}
-                </View>
+                </View> */}
 
             </ScrollView>
         </SafeAreaView>

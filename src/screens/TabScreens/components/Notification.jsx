@@ -99,7 +99,7 @@ const Notification = () => {
           setUnreadCount(res.unreadCount || 0);
         }
       } catch (error) {
-        console.error('Error fetching notifications:', error);
+        // console.error('Error fetching notifications:', error);
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -117,7 +117,7 @@ const Notification = () => {
       setUnreadCount(0);
       await patch_api('/notifications/mark-all-read', {}, user?.token);
     } catch (error) {
-      console.error('Error marking all as read:', error);
+      // console.error('Error marking all as read:', error);
       get_notification(true);
     }
   };
@@ -131,7 +131,7 @@ const Notification = () => {
       setUnreadCount((prev) => Math.max(0, prev - 1));
       await patch_api(`/notifications/${id}/read`, {}, user?.token);
     } catch (error) {
-      console.error('Error marking notification as read:', error);
+      // console.error('Error marking notification as read:', error);
     }
   };
 

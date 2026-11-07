@@ -283,7 +283,7 @@ const Matches = () => {
           friendsCompleted: fetchedFriendsCompleted,
         };
       } catch (error) {
-        console.error('Matches fetch error:', error);
+        // console.error('Matches fetch error:', error);
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -384,12 +384,12 @@ const Matches = () => {
           fetchMatches(true);
         }
       } catch (err) {
-        console.error('Matches WS parse error:', err);
+        // console.error('Matches WS parse error:', err);
       }
     };
 
     ws.onerror = (e) => {
-      console.warn('Matches WS notice:', e.message || 'Connecting...');
+      // console.warn('Matches WS notice:', e.message || 'Connecting...');
     };
 
     ws.onclose = () => {

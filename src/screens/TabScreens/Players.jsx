@@ -6,14 +6,11 @@ import {
   FlatList,
   TextInput,
   TouchableOpacity,
-  Modal,
-  TouchableWithoutFeedback,
   useColorScheme,
   Animated,
   ActivityIndicator,
   Image,
 } from 'react-native';
-import Ionicons from 'react-native-vector-icons/Ionicons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { light, dark } from '../../theme/Color';
 import { handleEdges } from '../../utils/edges';
@@ -23,11 +20,9 @@ import { useSelector } from 'react-redux';
 import { useNavigation } from '@react-navigation/native';
 
 const FILTERS = ['All', 'Single', 'Double'];
-const GENDER_OPTIONS = ['Male', 'Female', 'Other'];
-const CATEGORY_OPTIONS = ['Single', 'Double', 'Both'];
 const PAGE_LIMIT = 30;
 
-// Reusable Skeleton Card with Pulsing Animation
+// Skeleton Card matching the left-aligned avatar layout
 const SkeletonCard = ({ colors, pulseOpacity }) => (
   <Animated.View
     style={[
@@ -39,39 +34,39 @@ const SkeletonCard = ({ colors, pulseOpacity }) => (
       },
     ]}
   >
-    <View style={styles.cardTopRow}>
-      <View style={styles.playerInfoGroup}>
-        <View style={[styles.avatarCircle, { backgroundColor: colors.borderColor }]} />
+    <View style={[styles.avatarCircle, { backgroundColor: colors.borderColor }]} />
+
+    <View style={styles.cardContent}>
+      <View style={styles.cardTopRow}>
         <View
           style={{
-            width: 130,
-            height: 16,
+            width: 140,
+            height: 18,
             borderRadius: 6,
             backgroundColor: colors.borderColor,
           }}
         />
+        <View
+          style={{
+            width: 60,
+            height: 22,
+            borderRadius: 12,
+            backgroundColor: colors.borderColor,
+          }}
+        />
       </View>
-      <View
-        style={{
-          width: 65,
-          height: 22,
-          borderRadius: 8,
-          backgroundColor: colors.borderColor,
-        }}
-      />
-    </View>
 
-    <View style={styles.cardDivider} />
-
-    <View style={styles.statsRow}>
-      <View
-        style={{
-          width: '65%',
-          height: 14,
-          borderRadius: 4,
-          backgroundColor: colors.borderColor,
-        }}
-      />
+      <View style={styles.statsRow}>
+        <View
+          style={{
+            width: '80%',
+            height: 14,
+            borderRadius: 4,
+            backgroundColor: colors.borderColor,
+            marginTop: 4,
+          }}
+        />
+      </View>
     </View>
   </Animated.View>
 );
@@ -87,6 +82,9 @@ const Players = () => {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
 
+  // Stats Cache State: { [userId]: { completedMatches, totalWon, winRate } }
+  const [playerStats, setPlayerStats] = useState({});
+
   // Loading States
   const [initialLoading, setInitialLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -95,9 +93,6 @@ const Players = () => {
   // Filter & Search States
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFilter, setSelectedFilter] = useState('All');
-  const [gender, setGender] = useState('Male');
-  const [playingCategory, setPlayingCategory] = useState('Singles');
-  const [pickerType, setPickerType] = useState(null);
 
   // Pulse animation for skeleton
   const pulseAnim = useRef(new Animated.Value(0.35)).current;
@@ -126,16 +121,48 @@ const Players = () => {
     };
   }, [initialLoading, pulseAnim]);
 
-  // Fetch Players from Backend
+  // Fetch Stats Batch 
+  const fetchStatsForPlayers = useCallback(
+    async (playerList) => {
+      const currentUserId = user?.user?._id || user?._id;
+
+      playerList.forEach(async (p) => {
+        const playerId = p._id || p.id;
+        if (!playerId || playerStats[playerId]) return;
+
+        try {
+          const isCurrentUser = playerId === currentUserId;
+          const endpoint = isCurrentUser
+            ? '/matches/my-stats'
+            : `/matches/stats/${playerId}`;
+
+          const statsRes = await get_api(endpoint, user?.token);
+
+          if (statsRes?.success && statsRes?.stats) {
+            setPlayerStats((prev) => ({
+              ...prev,
+              [playerId]: statsRes.stats,
+            }));
+          }
+        } catch (err) {
+          // console.error(`Error fetching stats for user ${playerId}:`, err);
+        }
+      });
+    },
+    [user?.token, user?.user?._id, user?._id, playerStats]
+  );
+
+  // Fetch Players
   const fetchPlayers = useCallback(
-    async (pageToFetch = 1, isRefresh = false) => {
+    async (pageToFetch = 1, isRefresh = false, search = searchQuery) => {
       try {
         if (pageToFetch === 1 && !isRefresh) {
           setInitialLoading(true);
         }
 
+        const encodedSearch = encodeURIComponent(search.trim());
         const res = await get_api(
-          `/users/allPlayer?page=${pageToFetch}&limit=${PAGE_LIMIT}`,
+          `/users/allPlayer?page=${pageToFetch}&limit=${PAGE_LIMIT}&search=${encodedSearch}`,
           user?.token
         );
 
@@ -150,69 +177,58 @@ const Players = () => {
 
           setPage(pageToFetch);
 
-          // SAFEST HAS-MORE CHECK:
-          // If the API returns fewer items than the limit, we've hit the end.
           if (res.hasMore !== undefined) {
             setHasMore(res.hasMore);
           } else {
             setHasMore(newPlayers.length === PAGE_LIMIT);
           }
+
+          // Trigger stats fetch for the newly retrieved players
+          fetchStatsForPlayers(newPlayers);
         }
       } catch (error) {
-        console.error('Fetch players error:', error);
+        // console.error('Fetch players error:', error);
       } finally {
         setInitialLoading(false);
         setLoadingMore(false);
         setRefreshing(false);
       }
     },
-    [user?.token]
+    [user?.token, searchQuery, fetchStatsForPlayers]
   );
 
+  // Initial fetch on mount
   useEffect(() => {
-    fetchPlayers(1);
-  }, [fetchPlayers]);
+    fetchPlayers(1, false, '');
+  }, []);
 
-  // Pull-to-refresh
   const handleRefresh = () => {
     setRefreshing(true);
     setHasMore(true);
-    fetchPlayers(1, true);
+    fetchPlayers(1, true, searchQuery);
   };
 
-  // Scroll to bottom pagination
   const handleLoadMore = () => {
-    if (initialLoading || loadingMore || refreshing || !hasMore) {
-      return; // Prevent duplicate API calls
-    }
-
+    if (initialLoading || loadingMore || refreshing || !hasMore) return;
     setLoadingMore(true);
-    fetchPlayers(page + 1);
+    fetchPlayers(page + 1, false, searchQuery);
   };
 
-  // Filtered Players View
   const filteredPlayers = useMemo(() => {
     return players.filter((player) => {
-      const name = player.fullName || player.name || '';
       const category = player.role || player.category || '';
-
-      const matchesSearch = name
-        .toLowerCase()
-        .includes(searchQuery.trim().toLowerCase());
-
-      const matchesCategory =
-        selectedFilter === 'All'
-          ? true
-          : category.toLowerCase() === selectedFilter.toLowerCase();
-
-      return matchesSearch && matchesCategory;
+      return selectedFilter === 'All'
+        ? true
+        : category.toLowerCase() === selectedFilter.toLowerCase();
     });
-  }, [players, searchQuery, selectedFilter]);
+  }, [players, selectedFilter]);
 
   const renderPlayerCard = ({ item }) => {
+    const playerId = item._id || item.id;
     const name = item.fullName || item.name || 'Unknown';
     const category = (item.role || item.category || 'SINGLE').toUpperCase();
-    
+    const stats = playerStats[playerId];
+
     return (
       <TouchableOpacity
         style={[
@@ -220,28 +236,46 @@ const Players = () => {
           { backgroundColor: colors.bgSurface, borderColor: colors.borderColor },
         ]}
         activeOpacity={0.8}
-        onPress={() => navigation.navigate('PlayerProfile', { item })}
+        onPress={() => navigation.navigate('PlayerProfile', { item, stats })}
       >
-        <View style={styles.cardTopRow}>
-          <View style={styles.playerInfoGroup}>
-            <View style={[styles.avatarCircle, { backgroundColor: colors.bgBase }]}>
-              {item?.profile_image ? (
-                <Image source={{ uri: item.profile_image }} style={{ width: 42, height: 42, borderRadius: 21 }} />
-              ) : (
-                <Text style={[styles.avatarText, { color: colors.textPrimary }]}>
-                  {getInitials(name)}
-                </Text>
-              )}
-            </View>
+        <View style={[styles.avatarCircle, { backgroundColor: colors.bgBase }]}>
+          {item?.profile_image || item?.avatar ? (
+            <Image
+              source={{ uri: item.profile_image || item.avatar }}
+              style={{ width: 52, height: 52, borderRadius: 26 }}
+            />
+          ) : (
+            <Text style={[styles.avatarText, { color: colors.textPrimary }]}>
+              {getInitials(name)}
+            </Text>
+          )}
+        </View>
+
+        <View style={styles.cardContent}>
+          <View style={styles.cardTopRow}>
             <Text style={[styles.playerName, { color: colors.textPrimary }]} numberOfLines={1}>
               {name}
             </Text>
+            <View style={[styles.categoryBadge, { backgroundColor: colors.bgBase }]}>
+              <Text style={[styles.categoryBadgeText, { color: colors.textTertiary }]}>
+                {category}
+              </Text>
+            </View>
           </View>
 
-          <View style={[styles.categoryBadge, { backgroundColor: colors.bgBase }]}>
-            <Text style={[styles.categoryBadgeText, { color: colors.textTertiary }]}>
-              {category}
-            </Text>
+          <View style={styles.statsRow}>
+            {stats ? (
+              <Text style={[styles.statText, { color: colors.textTertiary }]}>
+                {stats.completedMatches ?? 0} Matches  •  {stats.totalWon ?? 0} Wins  •
+                <Text style={[styles.statTextBold, { color: colors.textPrimary }]}>
+                  {'  '}{stats.winRate ?? '0%'} Win Rate
+                </Text>
+              </Text>
+            ) : (
+              <Text style={[styles.statText, { color: colors.textTertiary }]}>
+                Loading stats...
+              </Text>
+            )}
           </View>
         </View>
       </TouchableOpacity>
@@ -278,6 +312,11 @@ const Players = () => {
           <TextInput
             value={searchQuery}
             onChangeText={setSearchQuery}
+            onSubmitEditing={() => {
+              setHasMore(true);
+              fetchPlayers(1, true, searchQuery); // Trigger search explicitly on Return/Enter key
+            }}
+            returnKeyType="search"
             placeholder="Search players..."
             placeholderTextColor={colors.textTertiary}
             style={[styles.searchInput, { color: colors.textPrimary }]}
@@ -329,7 +368,7 @@ const Players = () => {
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           onEndReached={handleLoadMore}
-          onEndReachedThreshold={0.5} 
+          onEndReachedThreshold={0.5}
           refreshing={refreshing}
           onRefresh={handleRefresh}
           ListFooterComponent={renderFooter}
@@ -342,72 +381,6 @@ const Players = () => {
           }
         />
       )}
-
-      {/* Dropdown Options Picker Modal */}
-      <Modal
-        visible={pickerType !== null}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setPickerType(null)}
-      >
-        <TouchableOpacity
-          activeOpacity={1}
-          onPress={() => setPickerType(null)}
-          style={[styles.pickerOverlay, { backgroundColor: colors.overlayBg }]}
-        >
-          <TouchableWithoutFeedback>
-            <View
-              style={[
-                styles.pickerContainer,
-                { backgroundColor: colors.bgSurface, borderColor: colors.borderColor },
-              ]}
-            >
-              {(pickerType === 'gender' ? GENDER_OPTIONS : CATEGORY_OPTIONS).map(
-                (option, idx) => (
-                  <TouchableOpacity
-                    key={option}
-                    activeOpacity={0.7}
-                    onPress={() => {
-                      if (pickerType === 'gender') {
-                        setGender(option);
-                      } else {
-                        setPlayingCategory(option);
-                      }
-                      setPickerType(null);
-                    }}
-                    style={[
-                      styles.pickerOption,
-                      idx > 0 && {
-                        borderTopWidth: StyleSheet.hairlineWidth,
-                        borderTopColor: colors.borderColor,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.pickerOptionText,
-                        { color: colors.textPrimary },
-                        (pickerType === 'gender'
-                          ? gender === option
-                          : playingCategory === option) && {
-                          fontWeight: '700',
-                        },
-                      ]}
-                    >
-                      {option}
-                    </Text>
-                    {(pickerType === 'gender'
-                      ? gender === option
-                      : playingCategory === option) && (
-                        <Ionicons name="checkmark" size={18} color={colors.textPrimary} />
-                      )}
-                  </TouchableOpacity>
-                )
-              )}
-            </View>
-          </TouchableWithoutFeedback>
-        </TouchableOpacity>
-      </Modal>
     </SafeAreaView>
   );
 };
@@ -467,57 +440,62 @@ const styles = StyleSheet.create({
     paddingBottom: 90,
   },
   playerCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
     borderWidth: 1,
     borderRadius: 18,
     padding: 14,
     marginBottom: 12,
+  },
+  avatarCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    marginRight: 14,
+  },
+  avatarText: {
+    fontSize: 17,
+    fontWeight: '800',
+  },
+  cardContent: {
+    flex: 1,
+    flexDirection: 'column',
+    justifyContent: 'center',
+    gap: 4,
   },
   cardTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  playerInfoGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    flex: 1,
-  },
-  avatarCircle: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  avatarText: {
-    fontSize: 15,
-    fontWeight: '700',
-  },
   playerName: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '700',
     flexShrink: 1,
   },
   categoryBadge: {
     paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 8,
+    borderRadius: 12,
   },
   categoryBadgeText: {
-    fontSize: 10.5,
-    fontWeight: '700',
+    fontSize: 10,
+    fontWeight: '800',
     letterSpacing: 0.6,
-  },
-  cardDivider: {
-    height: 10,
   },
   statsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingLeft: 54,
-    gap: 6,
+  },
+  statText: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  statTextBold: {
+    fontWeight: '800',
   },
   footerLoader: {
     paddingVertical: 16,
@@ -530,28 +508,5 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 14,
-  },
-  pickerOverlay: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-  },
-  pickerContainer: {
-    width: '100%',
-    maxWidth: 320,
-    borderRadius: 16,
-    borderWidth: 1,
-    overflow: 'hidden',
-  },
-  pickerOption: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 18,
-  },
-  pickerOptionText: {
-    fontSize: 15,
   },
 });
