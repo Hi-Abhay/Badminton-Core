@@ -30,19 +30,29 @@ import { useNavigation } from '@react-navigation/native';
 
 const FILTERS = ['All', 'Double', 'Club'];
 
-// Reusable Skeleton Card mirroring renderTeamCard
+// Reusable Skeleton Card mirroring the new team card layout
 const TeamCardSkeleton = ({ colors, pulseAnim }) => {
   const placeholderBg = colors.borderColor || '#333333';
 
   return (
     <View style={[styles.teamCard, { backgroundColor: colors.bgSurface, borderColor: colors.borderColor }]}>
-      <View style={styles.cardHeader}>
-        <Animated.View style={[styles.skeletonLine, { width: '55%', height: 22, backgroundColor: placeholderBg, opacity: pulseAnim }]} />
-        <Animated.View style={[styles.skeletonLine, { width: 70, height: 24, borderRadius: 12, backgroundColor: placeholderBg, opacity: pulseAnim }]} />
+      <View style={styles.cardTopRow}>
+        <View style={styles.avatarsWrapper}>
+          <Animated.View style={[styles.skeletonAvatar, { backgroundColor: placeholderBg, opacity: pulseAnim }]} />
+          <Animated.View style={[styles.skeletonAvatar, styles.avatarSecond, { backgroundColor: placeholderBg, opacity: pulseAnim }]} />
+        </View>
+
+        <View style={styles.teamHeaderInfo}>
+          <Animated.View style={[styles.skeletonLine, { width: '65%', height: 16, marginBottom: 8, backgroundColor: placeholderBg, opacity: pulseAnim }]} />
+          <Animated.View style={[styles.skeletonLine, { width: '35%', height: 12, backgroundColor: placeholderBg, opacity: pulseAnim }]} />
+        </View>
+
+        <Animated.View style={[styles.skeletonLine, { width: 14, height: 14, borderRadius: 7, backgroundColor: placeholderBg, opacity: pulseAnim }]} />
       </View>
-      <Animated.View style={[styles.skeletonLine, { width: '30%', height: 14, marginBottom: 12, backgroundColor: placeholderBg, opacity: pulseAnim }]} />
-      <Animated.View style={[styles.skeletonLine, { width: '80%', height: 15, marginBottom: 12, backgroundColor: placeholderBg, opacity: pulseAnim }]} />
-      <Animated.View style={[styles.skeletonLine, { width: '45%', height: 14, backgroundColor: placeholderBg, opacity: pulseAnim }]} />
+
+      <View style={[styles.cardDivider, { backgroundColor: colors.borderColor }]} />
+
+      <Animated.View style={[styles.skeletonLine, { width: '80%', height: 13, backgroundColor: placeholderBg, opacity: pulseAnim }]} />
     </View>
   );
 };
@@ -53,7 +63,6 @@ const Teams = () => {
   const { height: screenHeight, width: screenWidth } = useWindowDimensions();
   const user = useSelector((state) => state.auth);
   const navigation = useNavigation();
-  // Safely grab the user ID (handle both potential formats)
   const my_id = user?._id || user?.id;
 
   const [teams, setTeams] = useState([]);
@@ -107,12 +116,11 @@ const Teams = () => {
     return () => { showSub.remove(); hideSub.remove(); };
   }, []);
 
-  // Fetch Stats Batch for Teams
   const fetchStatsForTeams = useCallback(
     async (teamList) => {
       teamList.forEach(async (t) => {
         const teamId = t._id || t.id;
-        if (!teamId) return; // Skip if already loaded
+        if (!teamId) return;
         try {
           const statsRes = await get_api(`/matches/team-stats/${teamId}`, user?.token);
 
@@ -153,7 +161,6 @@ const Teams = () => {
         setNextCursor(res.nextCursor);
         setHasNextPage(res.hasNextPage);
 
-        // Fetch stats in the background for newly loaded teams
         fetchStatsForTeams(newTeams);
       }
     } catch (error) {
@@ -238,7 +245,6 @@ const Teams = () => {
     try {
       const res = await patch_api(`/teams/${id}/respond`, body, user?.token);
       if (res.success) {
-        // Silently refresh the list in the background
         fetchTeams(true);
       } else {
         Alert.alert('Error', res.message || 'Failed to respond to invitation.');
@@ -266,54 +272,76 @@ const Teams = () => {
   const availableScreenHeight = screenHeight - keyboardHeight - topSafePadding;
   const currentSheetHeight = keyboardHeight > 0 ? Math.min(defaultSheetHeight, availableScreenHeight) : defaultSheetHeight;
 
+  // Helper to render circular player avatar with golden border
+  const renderAvatarItem = (player, isSecond = false) => {
+    return (
+      <View style={[styles.avatarRing, isSecond && styles.avatarSecond]}>
+        {player?.profile_image ? (
+          <Image source={{ uri: player.profile_image }} style={styles.pairAvatar} />
+        ) : (
+          <View style={[styles.pairAvatarPlaceholder, { backgroundColor: colors.bgBase }]}>
+            <Text style={[styles.pairAvatarInitial, { color: colors.textPrimary }]}>
+              {(player?.fullName || '?')[0].toUpperCase()}
+            </Text>
+          </View>
+        )}
+      </View>
+    );
+  };
+
   const renderTeamCard = ({ item }) => {
     const tId = item?._id || item?.id;
     const tName = item?.teamName || 'Unknown Team';
-    const tCode = item?.teamCode || 'N/A';
-    const tType = item?.teamType ? item.teamType.charAt(0).toUpperCase() + item.teamType.slice(1) : 'Unknown';
-    const p1Name = item?.player1?.fullName || 'Unknown';
-    const p2Name = item?.player2?.fullName || 'Unknown';
-    const stats = teamStats[tId];
+    const tCode = item?.teamCode;
+    const rawType = item?.teamType || 'Double';
+    const formattedType = rawType.toLowerCase() === 'double' ? 'Doubles' : rawType.charAt(0).toUpperCase() + rawType.slice(1);
 
+    const stats = teamStats[tId];
     const isPendingForMe = item?.player2Status === 'pending' && item?.player2?._id === my_id;
+
+    const winRateStr = stats?.winRate
+      ? (stats.winRate.toString().includes('%') ? stats.winRate : `${stats.winRate}%`)
+      : '0%';
+    console.log(item);
 
     return (
       <TouchableOpacity
+        activeOpacity={0.75}
         style={[styles.teamCard, { backgroundColor: colors.bgSurface, borderColor: colors.borderColor }]}
         onPress={() => navigation.navigate('TeamProfile', { item: item, stats: stats })}
       >
-        <View style={styles.cardHeader}>
-          <Text style={[styles.teamName, { color: colors.textPrimary }]}>{tName}</Text>
-          {stats ? (
-            <View style={[styles.winBadge, { backgroundColor: colors.bgBase, borderColor: colors.borderColor }]}>
-              <Text style={[styles.winBadgeText, { color: colors.textPrimary }]}>
-                {stats.winRate ?? '0%'} WIN
-              </Text>
-            </View>
-          ) : null}
+        {/* Top Section: Avatars, Title & Type, Chevron */}
+        <View style={styles.cardTopRow}>
+          <View style={styles.avatarsWrapper}>
+            {renderAvatarItem(item?.player1, false)}
+            {renderAvatarItem(item?.player2, true)}
+          </View>
+
+          <View style={styles.teamHeaderInfo}>
+            <Text style={[styles.teamNameText, { color: colors.textPrimary }]} numberOfLines={1}>
+              {tName}{tCode ? ` (${tCode})` : ''}
+            </Text>
+            <Text style={[styles.teamSubtitle, { color: colors.textTertiary }]}>
+              • {formattedType}
+            </Text>
+          </View>
+
+          <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />
         </View>
 
-        <Text style={[styles.subtitle, { color: colors.textTertiary }]}>
-          {tCode} • {tType}
-        </Text>
+        {/* Subtle Divider */}
+        <View style={[styles.cardDivider, { backgroundColor: colors.borderColor }]} />
 
-        <Text style={styles.partnersRow}>
-          <Text style={[styles.partnersLabel, { color: colors.textPrimary }]}>Partners: </Text>
-          <Text style={[styles.partnersNames, { color: colors.textSecondary }]}>{p1Name} & {p2Name}</Text>
-        </Text>
-
-        <View style={styles.statsRow}>
-          {stats ? (
-            <Text style={[styles.statText, { color: colors.textTertiary }]}>
-              {stats.completedMatches ?? 0} Matches   {stats.totalWon ?? 0} Wins
-            </Text>
-          ) : (
-            <Text style={[styles.statText, { color: colors.textTertiary }]}>
-              Loading stats...
-            </Text>
-          )}
+        {/* Bottom Section: Summary Stats */}
+        <View style={styles.cardBottomRow}>
+          <Text style={[styles.statsSummaryText, { color: colors.textTertiary }]}>
+            {stats
+              ? `${stats.totalWon ?? 0} Wins,  ${stats.completedMatches ?? 0} Matches,  ${winRateStr} Win Rate`
+              : 'Loading stats...'}
+          </Text>
         </View>
 
+        {/* Pending Invitation Action Row */}
         {isPendingForMe && (
           <View style={[styles.inviteActionRow, { borderTopColor: colors.borderColor }]}>
             <TouchableOpacity
@@ -553,27 +581,43 @@ const styles = StyleSheet.create({
   filterPillText: { fontSize: 13.5, fontWeight: '600' },
   listContent: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 90 },
 
-  /* Updated Team Card Styles */
-  teamCard: { borderWidth: 1, borderRadius: 18, paddingHorizontal: 16, paddingVertical: 16, marginBottom: 12 },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
-  teamName: { fontSize: 18, fontWeight: '800', letterSpacing: -0.3 },
+  /* Team Card Styles */
+  teamCard: { borderWidth: 1, borderRadius: 18, paddingHorizontal: 16, paddingVertical: 14, marginBottom: 12 },
+  cardTopRow: { flexDirection: 'row', alignItems: 'center' },
+  avatarsWrapper: { flexDirection: 'row', alignItems: 'center', marginRight: 12 },
+  avatarRing: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 2,
+    borderColor: '#EAB308',
+    overflow: 'hidden',
+    backgroundColor: '#000000',
+  },
+  avatarSecond: {
+    marginLeft: -12,
+  },
+  pairAvatar: { width: '100%', height: '100%' },
+  pairAvatarPlaceholder: { width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' },
+  pairAvatarInitial: { fontSize: 14, fontWeight: '700' },
 
-  /* New Win Badge Styles */
-  winBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1 },
-  winBadgeText: { fontSize: 11, fontWeight: '800', letterSpacing: 0.5 },
+  teamHeaderInfo: { flex: 1, justifyContent: 'center' },
+  teamNameText: { fontSize: 16, fontWeight: '700', letterSpacing: -0.2 },
+  teamSubtitle: { fontSize: 13, fontWeight: '500', marginTop: 2 },
 
-  subtitle: { fontSize: 14, fontWeight: '500', marginBottom: 10 },
-  partnersRow: { fontSize: 14, marginBottom: 10 },
-  partnersLabel: { fontWeight: '700' },
-  partnersNames: { fontWeight: '500' },
+  cardDivider: {
+    height: StyleSheet.hairlineWidth,
+    marginVertical: 12,
+    width: '100%',
+  },
+  cardBottomRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  statsSummaryText: { fontSize: 13.5, fontWeight: '500', letterSpacing: -0.1 },
 
-  /* Stats Row Styles */
-  statsRow: { flexDirection: 'row', alignItems: 'center' },
-  statText: { fontSize: 14, fontWeight: '500' },
-  statTextBold: { fontWeight: '800' },
-
-  /* Invitation Action Row Styles */
-  inviteActionRow: { flexDirection: 'row', gap: 12, marginTop: 16, paddingTop: 16, borderTopWidth: StyleSheet.hairlineWidth },
+  /* Invitation Action Row */
+  inviteActionRow: { flexDirection: 'row', gap: 12, marginTop: 14, paddingTop: 14, borderTopWidth: StyleSheet.hairlineWidth },
   inviteButton: { flex: 1, height: 38, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   declineButton: { borderWidth: 1 },
   acceptButton: { borderWidth: 0 },
@@ -582,6 +626,8 @@ const styles = StyleSheet.create({
   emptyContainer: { alignItems: 'center', justifyContent: 'center', paddingTop: 60 },
   emptyText: { fontSize: 14 },
   skeletonLine: { borderRadius: 6 },
+  skeletonAvatar: { width: 38, height: 38, borderRadius: 19 },
+
   modalOverlay: { flex: 1, justifyContent: 'flex-end' },
   bottomSheet: { borderTopLeftRadius: 26, borderTopRightRadius: 26, paddingTop: 12, width: '100%', overflow: 'hidden' },
   dragHandle: { width: 42, height: 4, borderRadius: 2, backgroundColor: '#D4D4D8', alignSelf: 'center', marginBottom: 14 },

@@ -23,8 +23,9 @@ const TeamProfile = ({ route, navigation }) => {
     const data = route?.params?.item || {}
     const stats = route?.params?.stats || {}
 
-    console.log(stats);
-    
+    console.log(data);
+
+
     // Assuming team data is passed via navigation parameters. 
     // Fallback mock data provided for previewing.
     const team = {
@@ -34,7 +35,7 @@ const TeamProfile = ({ route, navigation }) => {
         totalMatch: stats?.completedMatches,
         winMatch: stats?.totalWon,
         player1: { fullName: data?.player1?.fullName, role: 'Captain', cate: data?.player1?.role, image: data?.player1?.profile_image },
-        player2: { fullName: data?.player2?.fullName, role: 'Player', cate: data?.player1?.role, image: data?.player1?.profile_image },
+        player2: { fullName: data?.player2?.fullName, role: 'Player', cate: data?.player1?.role, image: data?.player2?.profile_image },
     };
 
     const matches = team.totalMatch || 0;
@@ -54,6 +55,7 @@ const TeamProfile = ({ route, navigation }) => {
 
     const renderPlayerRow = (player, isCaptain) => {
         if (!player) return null;
+        console.log(player);
 
         return (
             <View style={[styles.playerRow, { borderBottomColor: colors.borderColor }]}>
