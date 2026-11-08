@@ -145,8 +145,9 @@ const PlayerProfile = () => {
   const theme = isDark ? dark : light;
   const route = useRoute();
   const player = route?.params?.item || {};
-  const stats = route?.params?.stats
+  const player_stats = route?.params?.stats || {}
   const navigation = useNavigation();
+  const [stats, setStats] = useState(player_stats)
 
   const user = useSelector((state) => state.auth);
   const currentUserId = user?.user?._id || user?.user?.id || user?.id;
@@ -241,9 +242,9 @@ const PlayerProfile = () => {
 
   useEffect(() => {
     fetchConnectionStatus();
-    // fetchStats();
+    fetchStats();
     fetchMatchHistory();
-  }, [fetchConnectionStatus, fetchMatchHistory]);
+  }, [fetchConnectionStatus, fetchMatchHistory, fetchStats]);
 
   // Handle Send Connection Request
   const handleFollow = async () => {
@@ -638,7 +639,7 @@ const stylesProfile = (theme) =>
       alignItems: 'center',
       borderWidth: 1,
       borderColor: theme.borderColor,
-      overflow : 'hidden'
+      overflow: 'hidden'
     },
     avatarText: {
       fontSize: 22,

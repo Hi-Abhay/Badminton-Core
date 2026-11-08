@@ -68,36 +68,37 @@ const Friends = ({ navigation }) => {
   const sent_List = sent?.requests || [];
   const request_List = request?.requests || [];
 
-  const get_mutual = async () => {
+  const get_mutual = useCallback(async () => {
     try {
       const res = await get_api('/connections', user?.token);
       if (res?.success) setMutual(res);
     } catch (error) {
       console.log('Error fetching mutual:', error);
     }
-  };
+  }, [user?.token]);
 
-  const get_sent = async () => {
+  const get_sent = useCallback(async () => {
     try {
       const res = await get_api('/connections/sent', user?.token);
       if (res?.success) setSent(res);
     } catch (error) {
       // console.log('Error fetching sent:', error);
     }
-  };
+  }, [user?.token]);
 
-  const get_req = async () => {
+  const get_req = useCallback(async () => {
     try {
       const res = await get_api('/connections/pending', user?.token);
       if (res?.success) setRequest(res);
     } catch (error) {
       console.log('Error fetching requests:', error);
     }
-  };
+  }, [user?.token]);
 
+  // Silent sync: fetches all lists without toggling loading or refreshing indicators
   const fetchAllData = useCallback(async () => {
     await Promise.all([get_mutual(), get_sent(), get_req()]);
-  }, [user?.token]);
+  }, [get_mutual, get_sent, get_req]);
 
   useEffect(() => {
     const init = async () => {
@@ -108,6 +109,7 @@ const Friends = ({ navigation }) => {
     init();
   }, [fetchAllData]);
 
+  // Pull-to-refresh: explicitly toggles the refreshing spinner
   const onRefresh = async () => {
     setRefreshing(true);
     await fetchAllData();
@@ -115,17 +117,22 @@ const Friends = ({ navigation }) => {
   };
 
   const handleCancelSent = (id) => {
+    // 1. Optimistic UI update
     setSent((prev) => ({
       ...prev,
       requests: (prev?.requests || []).filter(
         (item) => (item?.id || item?._id || item?.connectionId) !== id
       ),
     }));
+
+    // 2. Silent background sync
+    fetchAllData();
   };
 
   const handleAcceptRequest = (item, rawSender) => {
     const id = item?._id || item?.id || item?.connectionId;
 
+    // 1. Optimistically remove from request tab
     setRequest((prev) => ({
       ...prev,
       requests: (prev?.requests || []).filter(
@@ -133,6 +140,7 @@ const Friends = ({ navigation }) => {
       ),
     }));
 
+    // 2. Optimistically add to mutual tab
     setMutual((prev) => ({
       ...prev,
       friends: [
@@ -144,15 +152,22 @@ const Friends = ({ navigation }) => {
         ...(prev?.friends || []),
       ],
     }));
+
+    // 3. Silently refresh all lists from server in background
+    fetchAllData();
   };
 
   const handleDeclineRequest = (id) => {
+    // 1. Optimistically remove from request tab
     setRequest((prev) => ({
       ...prev,
       requests: (prev?.requests || []).filter(
         (item) => (item?._id || item?.id || item?.connectionId) !== id
       ),
     }));
+
+    // 2. Silently refresh all lists from server in background
+    fetchAllData();
   };
 
   return (
