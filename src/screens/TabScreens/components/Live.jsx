@@ -12,6 +12,8 @@ import {
   LayoutAnimation,
   Platform,
   UIManager,
+  Modal,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -59,6 +61,10 @@ const Live = () => {
   const [courtSide, setCourtSide] = useState('RIGHT COURT'); 
   const [canUndo, setCanUndo] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
+
+  // Delete confirmation modal state
+  const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   
   // State to track physical card layout swapping
   const [isSwapped, setIsSwapped] = useState(false);
@@ -263,34 +269,39 @@ const Live = () => {
     );
   };
 
-  // DELETE / DISMISS Match Functionality
+  // Open delete confirmation modal
   const handleDismissMatch = () => {
-    Alert.alert(
-      'Dismiss Match?',
-      'Are you sure you want to permanently delete this match? This action cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setIsUpdating(true);
-              const res = await delete_api(`/matches/${matchId}`, user?.token);
-              if (res?.success) {
-                navigation.goBack();
-              } else {
-                Alert.alert('Error', res?.message || 'Failed to delete match.');
-              }
-            } catch (error) {
-              Alert.alert('Error', 'Network error while deleting match.');
-            } finally {
-              setIsUpdating(false);
-            }
-          },
-        },
-      ]
-    );
+    setIsDeleteModalVisible(true);
+  };
+
+  const closeDeleteModal = () => {
+    if (!isDeleting) {
+      setIsDeleteModalVisible(false);
+    }
+  };
+
+  // DELETE Match after confirmation
+  const handleConfirmDelete = async () => {
+    if (!matchId) {
+      setIsDeleteModalVisible(false);
+      navigation.goBack();
+      return;
+    }
+    try {
+      setIsDeleting(true);
+      const res = await delete_api(`/matches/${matchId}`, user?.token);
+      setIsDeleteModalVisible(false);
+      if (res?.success) {
+        navigation.goBack();
+      } else {
+        Alert.alert('Error', res?.message || 'Failed to delete match.');
+      }
+    } catch (error) {
+      setIsDeleteModalVisible(false);
+      Alert.alert('Error', 'Network error while deleting match.');
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   return (
@@ -330,7 +341,7 @@ const Live = () => {
             activeOpacity={0.7}
             style={[styles.dismissBtn, { backgroundColor: 'rgba(239, 68, 68, 0.1)' }]}
             onPress={handleDismissMatch}
-            disabled={isUpdating}
+            disabled={isUpdating || isDeleting}
           >
             <Ionicons name="trash-outline" size={16} color="#EF4444" />
             <Text style={styles.dismissText}>Dismiss</Text>
@@ -529,6 +540,67 @@ const Live = () => {
           </Text>
         </TouchableOpacity>
       </ScrollView>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        visible={isDeleteModalVisible}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={closeDeleteModal}
+      >
+        <TouchableOpacity
+          activeOpacity={1}
+          style={styles.modalBackdrop}
+          onPress={closeDeleteModal}
+        >
+          <TouchableOpacity
+            activeOpacity={1}
+            style={[
+              styles.modalContainer,
+              { backgroundColor: colors.bgSurface, borderColor: colors.borderColor },
+            ]}
+          >
+            <View style={styles.deleteIconCircle}>
+              <Ionicons name="trash-outline" size={30} color="#EF4444" />
+            </View>
+
+            <Text style={[styles.deleteTitle, { color: colors.textPrimary }]}>
+              Delete this match?
+            </Text>
+
+            <Text style={[styles.deleteMessage, { color: colors.textSecondary }]}>
+              {player1Name} vs {player2Name} will be permanently removed. This action cannot be undone.
+            </Text>
+
+            <View style={styles.deleteBtnRow}>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                disabled={isDeleting}
+                style={[styles.cancelBtn, { borderColor: colors.borderColor }]}
+                onPress={closeDeleteModal}
+              >
+                <Text style={[styles.cancelBtnText, { color: colors.textPrimary }]}>
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                activeOpacity={0.85}
+                disabled={isDeleting}
+                style={[styles.confirmDeleteBtn, isDeleting && { opacity: 0.7 }]}
+                onPress={handleConfirmDelete}
+              >
+                {isDeleting ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.confirmDeleteText}>Delete</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -720,5 +792,73 @@ const styles = StyleSheet.create({
   swapButtonText: {
     fontSize: 14.5,
     fontWeight: '700',
+  },
+
+  // Delete confirmation modal
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  modalContainer: {
+    width: '100%',
+    borderRadius: 22,
+    borderWidth: 1,
+    padding: 20,
+  },
+  deleteIconCircle: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  deleteTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    letterSpacing: -0.3,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  deleteMessage: {
+    fontSize: 14,
+    fontWeight: '500',
+    lineHeight: 20,
+    textAlign: 'center',
+    marginBottom: 22,
+  },
+  deleteBtnRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  cancelBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelBtnText: {
+    fontSize: 14.5,
+    fontWeight: '700',
+  },
+  confirmDeleteBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: '#EF4444',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmDeleteText: {
+    color: '#FFFFFF',
+    fontSize: 14.5,
+    fontWeight: '800',
   },
 });

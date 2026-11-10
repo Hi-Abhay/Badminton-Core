@@ -500,7 +500,7 @@ const Matches = () => {
       // 2. Pending Match
       if (item?.status === 'INVITATION_PENDING') {
         if (isHost) {
-          showToast('Invite sent. Waiting for opponent to accept.', 'info');
+          navigation.navigate('Toss', { match: item });
         } else {
           navigation.navigate('ScoreCard', { matchId: item._id, match: item });
         }
