@@ -74,13 +74,13 @@ const CreateMatch = () => {
       }
 
       // 2. Fetch My Teams (For Host Team Selection)
-      const resMyTeams = await get_api('/teams/my-teams', user?.token);
+      const resMyTeams = await get_api('/teams/my-teams', user?.token, URL);
       if (resMyTeams?.success) {
         setMyTeams(resMyTeams?.teams || []);
       }
 
       // 3. Fetch All Teams (For Challenge Team Selection)
-      const resAllTeams = await get_api('/teams', user?.token);
+      const resAllTeams = await get_api('/teams', user?.token, URL);
       if (resAllTeams?.success) {
         setAllTeams(resAllTeams?.teams || []);
       }
@@ -199,7 +199,7 @@ const CreateMatch = () => {
 
     try {
       setIsSubmitting(true);
-      const res = await post_api('/matches', payload, user?.token);
+      const res = await post_api('/matches', payload, user?.token, URL);
       setIsSubmitting(false);
 
       if (res?.success) {
