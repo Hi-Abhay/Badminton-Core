@@ -20,7 +20,7 @@ import { light, dark } from '../../../theme/Color';
 import { handleEdges } from '../../../utils/edges';
 import { useNavigation } from '@react-navigation/native';
 import { useSelector } from 'react-redux';
-import { get_api, post_api } from '../../../utils/api';
+import { get_api, post_api, URL } from '../../../utils/api';
 
 export const maskEmail = (email) => {
   if (!email || !email.includes('@')) return '';
