@@ -1,57 +1,31 @@
-// import 'react-native-gesture-handler';
-// import React from 'react';
-// import { StyleSheet } from 'react-native';
-// import { SafeAreaProvider } from 'react-native-safe-area-context';
-// import { Provider } from 'react-redux';
-// import { PersistGate } from 'redux-persist/integration/react';
-// import { store, persistor } from './src/store/store'; // Update this path if your store is in a different folder
-// import StackNavigation from './src/navigations/StackNavigation';
-// const App = () => {
-//   return (
-//     <Provider store={store}>
-//       <PersistGate
-//         loading={false}
-//         persistor={persistor}
-//       >
-//         <SafeAreaProvider style={styles.root}>
-//           <StackNavigation />
-//         </SafeAreaProvider>
-//       </PersistGate>
-//     </Provider>
-//   );
-// };
-
-// const styles = StyleSheet.create({
-//   root: {
-//     flex: 1,
-//   },
-//   loadingContainer: {
-//     flex: 1,
-//     justifyContent: 'center',
-//     alignItems: 'center',
-//   },
-// });
-
-// export default App;
-
-
 import 'react-native-gesture-handler';
-import React from 'react';
+import React, { useEffect } from 'react';
 import { StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Provider } from 'react-redux';
 import { PersistGate } from 'redux-persist/integration/react';
 import BootSplash from 'react-native-bootsplash'; // 1. Import BootSplash
-
-import { store, persistor } from './src/store/store'; 
+import { URL } from './src/utils/api'
+import { store, persistor } from './src/store/store';
 import StackNavigation from './src/navigations/StackNavigation';
 
 const App = () => {
-  
+
   // 2. Create a function to hide the splash screen
   const handleBeforeLift = () => {
     BootSplash.hide({ fade: true });
   };
+
+  const getStart = async () => {
+    try {
+      const res = await fetch(URL)
+    } catch (error) {
+
+    }
+  }
+  useEffect(() => {
+    getStart();
+  }, [])
 
   return (
     <Provider store={store}>

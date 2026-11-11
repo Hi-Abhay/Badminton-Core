@@ -25,7 +25,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { light, dark } from '../../theme/Color';
 import { handleEdges } from '../../utils/edges';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { get_api, patch_api } from '../../utils/api';
+import { get_api, patch_api, URL } from '../../utils/api';
 import { useSelector } from 'react-redux';
 import { WS_BASE_URL } from '../../utils/api';
 
@@ -245,9 +245,9 @@ const Matches = () => {
         }
 
         const [myRes, liveRes, upcomingRes, compFriendsRes] = await Promise.allSettled([
-          get_api('/matches/my-matches', user?.token),
-          get_api('/matches/mutual-live', user?.token),
-          get_api('/matches/mutual-upcoming', user?.token),
+          get_api('/matches/my-matches', user?.token, URL),
+          get_api('/matches/mutual-live', user?.token, URL),
+          get_api('/matches/mutual-upcoming', user?.token, URL),
 
         ]);
 
@@ -458,7 +458,7 @@ const Matches = () => {
       const body = { action };
       try {
         setActionLoadingId(matchId);
-        const res = await patch_api(`/matches/${matchId}/respond`, body, user?.token);
+        const res = await patch_api(`/matches/${matchId}/respond`, body, user?.token, URL);
 
         if (res?.success) {
           if (action === 'ACCEPT') {

@@ -1,12 +1,20 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // export const URL = 'https://renata-pungent-johnna.ngrok-free.dev';
-export const URL = 'https://badminton-core-backend.vercel.app';
+export const URL = 'https://badminton-backend-1pp7.onrender.com';
+export const BASE_URL = 'https://badminton-core-backend.vercel.app';
 // export const WS_BASE_URL = 'wss://renata-pungent-johnna.ngrok-free.dev';
 export const WS_BASE_URL = 'wss://badminton-backend-1pp7.onrender.com';
 
 // Central request handler
-const request = async (method, endPoint, body = null, token = null) => {
+// baseUrl defaults to the Vercel URL; pass URL (Render) to use the other one
+const request = async (
+  method,
+  endPoint,
+  body = null,
+  token = null,
+  baseUrl = BASE_URL,
+) => {
   try {
     // Uses passed token, or falls back to AsyncStorage if not passed
     const authToken = token || (await AsyncStorage.getItem('token'));
@@ -29,7 +37,7 @@ const request = async (method, endPoint, body = null, token = null) => {
       config.body = JSON.stringify(body);
     }
 
-    const res = await fetch(`${URL}${endPoint}`, config);
+    const res = await fetch(`${baseUrl || BASE_URL}${endPoint}`, config);
     const data = await res.json();
 
     if (!res.ok) {
@@ -44,21 +52,37 @@ const request = async (method, endPoint, body = null, token = null) => {
 };
 
 // GET: fetch data
-export const get_api = (endPoint, token = null) =>
-  request('GET', endPoint, null, token);
+export const get_api = (endPoint, token = null, baseUrl = BASE_URL) =>
+  request('GET', endPoint, null, token, baseUrl);
 
 // POST: create resource
-export const post_api = (endPoint, body = {}, token = null) =>
-  request('POST', endPoint, body, token);
+export const post_api = (
+  endPoint,
+  body = {},
+  token = null,
+  baseUrl = BASE_URL,
+) => request('POST', endPoint, body, token, baseUrl);
 
 // PUT: full update
-export const put_api = (endPoint, body = {}, token = null) =>
-  request('PUT', endPoint, body, token);
+export const put_api = (
+  endPoint,
+  body = {},
+  token = null,
+  baseUrl = BASE_URL,
+) => request('PUT', endPoint, body, token, baseUrl);
 
 // PATCH: partial update
-export const patch_api = (endPoint, body = {}, token = null) =>
-  request('PATCH', endPoint, body, token);
+export const patch_api = (
+  endPoint,
+  body = {},
+  token = null,
+  baseUrl = BASE_URL,
+) => request('PATCH', endPoint, body, token, baseUrl);
 
 // DELETE: remove resource
-export const delete_api = (endPoint, token = null, body = null) =>
-  request('DELETE', endPoint, body, token);
+export const delete_api = (
+  endPoint,
+  token = null,
+  body = null,
+  baseUrl = BASE_URL,
+) => request('DELETE', endPoint, body, token, baseUrl);

@@ -23,7 +23,7 @@ import { useSelector } from 'react-redux';
 import { light, dark } from '../../../theme/Color';
 import { handleEdges } from '../../../utils/edges';
 // Added delete_api for the Dismiss Match feature
-import { get_api, post_api, delete_api } from '../../../utils/api';
+import { get_api, post_api, delete_api, URL } from '../../../utils/api';
 
 // Enable LayoutAnimation on Android for the court swap effect
 if (
@@ -58,14 +58,14 @@ const Live = () => {
   const [completedGames, setCompletedGames] = useState([]);
 
   const [server, setServer] = useState(1);
-  const [courtSide, setCourtSide] = useState('RIGHT COURT'); 
+  const [courtSide, setCourtSide] = useState('RIGHT COURT');
   const [canUndo, setCanUndo] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
 
   // Delete confirmation modal state
   const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  
+
   // State to track physical card layout swapping
   const [isSwapped, setIsSwapped] = useState(false);
 
@@ -127,10 +127,10 @@ const Live = () => {
       // Trigger Animations if score increased
       if (s1 > prevP1Score.current) triggerBounce(scaleP1);
       if (s2 > prevP2Score.current) triggerBounce(scaleP2);
-      
+
       prevP1Score.current = s1;
       prevP2Score.current = s2;
-      
+
       setPlayer1Score(s1);
       setPlayer2Score(s2);
 
@@ -179,7 +179,7 @@ const Live = () => {
   const fetchLiveScore = useCallback(async () => {
     if (!matchId) return;
     try {
-      const res = await get_api(`/matches/${matchId}/live`, user?.token);
+      const res = await get_api(`/matches/${matchId}/live`, user?.token, URL);
       if (res?.success) {
         if (res.rules || res.sideA || res.sideB) {
           setMatchData((prev) => ({ ...prev, ...res }));
@@ -222,7 +222,8 @@ const Live = () => {
       const res = await post_api(
         `/matches/${matchId}/live/point`,
         { side },
-        user?.token
+        user?.token,
+        URL
       );
 
       if (res?.success) {
@@ -245,7 +246,8 @@ const Live = () => {
       const res = await post_api(
         `/matches/${matchId}/live/undo`,
         {},
-        user?.token
+        user?.token,
+        URL
       );
 
       if (res?.success) {
@@ -364,7 +366,7 @@ const Live = () => {
 
         {/* Main Scores Grid with Animated Layout Swap */}
         <View style={[styles.scoringGrid, { flexDirection: isSwapped ? 'row-reverse' : 'row' }]}>
-          
+
           {/* Player 1 Card (Side A) */}
           <View
             style={[

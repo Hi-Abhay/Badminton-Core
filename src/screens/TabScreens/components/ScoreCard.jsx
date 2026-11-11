@@ -23,7 +23,7 @@ import { WS_BASE_URL } from '../../../utils/api'
 
 import { light, dark } from '../../../theme/Color';
 import { handleEdges } from '../../../utils/edges';
-import { get_api } from '../../../utils/api';
+import { get_api, URL } from '../../../utils/api';
 
 
 // --- Floating +1 Score Badge Animation ---
@@ -163,7 +163,7 @@ const ScoreCard = () => {
       try {
         if (isPullToRefresh) setRefreshing(true);
 
-        const res = await get_api(`/matches/${matchId}/live`, user?.token);
+        const res = await get_api(`/matches/${matchId}/live`, user?.token, URL);
         if (res?.success) {
           setMatch((prev) => ({
             ...prev,
@@ -250,7 +250,7 @@ const ScoreCard = () => {
               matchId: matchId.toString(),
             })
           );
-        } catch (_) {}
+        } catch (_) { }
       }
       ws.close();
       wsRef.current = null;
@@ -362,7 +362,7 @@ const ScoreCard = () => {
             Match Scorecard
           </Text>
         </View>
-
+{/* 
         {isMatchStartedOrCompleted && (
           <TouchableOpacity
             activeOpacity={0.7}
@@ -375,7 +375,7 @@ const ScoreCard = () => {
           >
             <Ionicons name="share-social-outline" size={20} color={colors.textPrimary} />
           </TouchableOpacity>
-        )}
+        )} */}
       </View>
 
       <ScrollView
@@ -417,8 +417,8 @@ const ScoreCard = () => {
                     color: isMatchLive
                       ? '#EF4444'
                       : colorScheme === 'dark'
-                      ? '#52525B'
-                      : '#A1A1AA',
+                        ? '#52525B'
+                        : '#A1A1AA',
                   },
                 ]}
               >

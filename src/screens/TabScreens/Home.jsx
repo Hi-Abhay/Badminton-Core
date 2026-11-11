@@ -26,7 +26,7 @@ import { useNavigation } from '@react-navigation/native';
 import { light, dark } from '../../theme/Color';
 import { handleEdges } from '../../utils/edges';
 import { useSelector } from 'react-redux';
-import { get_api } from '../../utils/api';
+import { get_api, URL } from '../../utils/api';
 import { Bell, Clock, Calendar, ChevronRight, Trophy } from 'lucide-react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { WS_BASE_URL } from '../../utils/api'
@@ -443,7 +443,7 @@ const Home = () => {
     async (isRefresh = false) => {
       try {
         if (!isRefresh) setLoadingLive(true);
-        const res = await get_api('/matches/mutual-live', user?.token);
+        const res = await get_api('/matches/mutual-live', user?.token, URL);
         if (res?.success) {
           setLiveFeeds(res?.matches || []);
         }
@@ -460,7 +460,7 @@ const Home = () => {
     async (isRefresh = false) => {
       try {
         if (!isRefresh) setLoadingUpcoming(true);
-        const res = await get_api('/matches/mutual-upcoming', user?.token);
+        const res = await get_api('/matches/mutual-upcoming', user?.token, URL);
         if (res?.success) {
           setSoonFeeds(res?.matches || []);
         }
@@ -926,7 +926,7 @@ const Home = () => {
               size={20}
               color={colors.textPrimary}
               count={notificationCount}
-              
+
             />
 
             {notificationCount > 0 && (
@@ -1174,7 +1174,7 @@ const Home = () => {
 export default Home;
 
 const styles = StyleSheet.create({
- 
+
   safeArea: {
     flex: 1,
   },
