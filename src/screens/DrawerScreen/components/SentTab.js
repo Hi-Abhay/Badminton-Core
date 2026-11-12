@@ -34,7 +34,7 @@ const SentTab = ({
     const fullName = target?.fullName || 'Unknown Player';
     const avatar = target?.avatar || target?.profile_image;
     const requestId = item?._id || item?.id || item?.connectionId;
-
+    
     return (
       <View
         style={[
@@ -78,19 +78,6 @@ const SentTab = ({
             {formatHandle(fullName)}
           </Text>
         </View>
-
-        <TouchableOpacity
-          activeOpacity={0.7}
-          style={[
-            styles.statusPill,
-            { borderColor: colors.borderColor, backgroundColor: colors.bgBase },
-          ]}
-          onPress={() => onCancel?.(requestId)}
-        >
-          <Text style={[styles.statusPillText, { color: colors.textSecondary }]}>
-            Cancel
-          </Text>
-        </TouchableOpacity>
       </View>
     );
   };
