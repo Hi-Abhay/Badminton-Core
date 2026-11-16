@@ -35,14 +35,10 @@ const RequestTab = ({
   }
 
   const renderItem = ({ item }) => {
-    console.log(item);
-
-    const sender =
-      item?.requester || item?.requester || item?.requester || item;
+    const sender = item?.requester || item;
     const fullName = sender?.fullName || 'Unknown Player';
     const avatar = sender?.avatar || sender?.profile_image;
     const requestId = item?._id || item?.id || item?.connectionId;
-    console.log(item);
 
     const handle_request = async respond => {
       const payload = {
@@ -50,15 +46,14 @@ const RequestTab = ({
       };
 
       try {
-        const res = await patch_api(
+        const result = await patch_api(
           `/connections/${requestId}/respond`,
           payload,
           user?.token,
         );
 
-        const result = await res.json();
-
-        if (res.ok && result?.success) {
+        // Assuming patch_api parses JSON. If it returns { success: true }, proceed:
+        if (result?.success || result?.message) {
           if (respond) {
             onAccept?.(item, sender);
           } else {

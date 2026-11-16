@@ -117,22 +117,19 @@ const Friends = ({ navigation }) => {
   };
 
   const handleCancelSent = (id) => {
-    // 1. Optimistic UI update
     setSent((prev) => ({
       ...prev,
       requests: (prev?.requests || []).filter(
         (item) => (item?.id || item?._id || item?.connectionId) !== id
       ),
     }));
-
-    // 2. Silent background sync
     fetchAllData();
   };
 
   const handleAcceptRequest = (item, rawSender) => {
+    // Determine the correct ID. Backend might use _id, connectionId, or nested fields.
     const id = item?._id || item?.id || item?.connectionId;
 
-    // 1. Optimistically remove from request tab
     setRequest((prev) => ({
       ...prev,
       requests: (prev?.requests || []).filter(
@@ -140,7 +137,6 @@ const Friends = ({ navigation }) => {
       ),
     }));
 
-    // 2. Optimistically add to mutual tab
     setMutual((prev) => ({
       ...prev,
       friends: [
@@ -153,12 +149,10 @@ const Friends = ({ navigation }) => {
       ],
     }));
 
-    // 3. Silently refresh all lists from server in background
     fetchAllData();
   };
 
   const handleDeclineRequest = (id) => {
-    // 1. Optimistically remove from request tab
     setRequest((prev) => ({
       ...prev,
       requests: (prev?.requests || []).filter(
@@ -166,7 +160,6 @@ const Friends = ({ navigation }) => {
       ),
     }));
 
-    // 2. Silently refresh all lists from server in background
     fetchAllData();
   };
 

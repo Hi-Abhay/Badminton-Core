@@ -379,7 +379,7 @@ const PlayerProfile = () => {
 
             <View style={styles.badgeRow}>
               <View style={styles.badge}>
-                <Text style={styles.badgeText}>{player?.role || 'single'}</Text>
+                <Text style={[styles.badgeText, { color: '#FFF' }]}>{player?.role || 'single'}</Text>
               </View>
             </View>
 
@@ -671,7 +671,7 @@ const stylesProfile = (theme) =>
     badgeText: {
       fontSize: 11,
       fontWeight: '800',
-      color: theme.textSecondary,
+      color: theme.textPrimary,
       letterSpacing: 0.8,
     },
     followButton: {
